@@ -1,3 +1,6 @@
+# This is a personal project i will not looking at commit or merge requests
+
+
 # 🧾 POS Inventory & Checkout System
 
 A standalone Point of Sale (POS) and inventory management system built with **Python**, designed to run locally with **SQLite** and optionally connect to a **PostgreSQL** server for scaling.
