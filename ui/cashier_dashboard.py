@@ -20,9 +20,9 @@ from db import get_connection
 
 # Cart colors for visual distinction
 CART_COLORS = [
-    "#1a56db",  # Blue
-    "#1a9e6c",  # Green
-    "#c7622a",  # Orange
+    "#1a56db",  # Cart 1 — Blue
+    "#7c3aed",  # Cart 2 — Purple
+    "#0d9488",  # Cart 3 — Teal
 ]
 
 

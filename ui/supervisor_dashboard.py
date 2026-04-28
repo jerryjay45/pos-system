@@ -739,6 +739,17 @@ class SupervisorDashboard(BaseWindow):
 
     def _clear_form_fields(self):
         self.f_barcode.clear()
+        # Unlock barcode when switching back to add mode
+        self.f_barcode.setReadOnly(False)
+        self.f_barcode.setStyleSheet("""
+            QLineEdit {
+                background-color: #161b22; color: #ffffff;
+                border: 1px solid #30363d; border-radius: 6px;
+                padding: 0 10px; font-size: 13px;
+            }
+            QLineEdit:focus { border-color: #1a56db; }
+        """)
+        self.f_barcode.setToolTip("")
         self.f_brand.clear()
         self.f_name.clear()
         self.f_alias.clear()
@@ -776,6 +787,16 @@ class SupervisorDashboard(BaseWindow):
         self.form_title.setText("✏  Edit Product")
 
         self.f_barcode.setText(barcode or "")
+        # Lock barcode — cannot be changed while editing
+        self.f_barcode.setReadOnly(True)
+        self.f_barcode.setStyleSheet("""
+            QLineEdit {
+                background-color: #0d1117; color: #484f58;
+                border: 1px solid #21262d; border-radius: 6px;
+                padding: 0 10px; font-size: 13px;
+            }
+        """)
+        self.f_barcode.setToolTip("Barcode cannot be changed after a product is created")
         self.f_brand.setText(brand   or "")
         self.f_name.setText(name     or "")
         self.f_alias.setText(alias   or "")
@@ -830,6 +851,22 @@ class SupervisorDashboard(BaseWindow):
             conn   = get_connection()
             cursor = conn.cursor()
 
+            # FIX 1 — Check for duplicate barcode on new products only
+            if not self.editing_product_id:
+                cursor.execute(
+                    "SELECT id, name FROM products WHERE barcode = ?", (barcode,))
+                existing = cursor.fetchone()
+                if existing:
+                    conn.close()
+                    QMessageBox.warning(
+                        self, "Duplicate Barcode",
+                        f"Barcode '{barcode}' is already used by:\n'{existing[1]}'\n\n"
+                        f"Please use a different barcode."
+                    )
+                    self.f_barcode.selectAll()
+                    self.f_barcode.setFocus()
+                    return
+
             # Get or create alias
             alias_id = None
             if alias:
@@ -849,13 +886,14 @@ class SupervisorDashboard(BaseWindow):
                 group_id = cursor.fetchone()[0]
 
             if self.editing_product_id:
+                # FIX 2 — Barcode NOT updated — it is locked/read-only in edit mode
                 cursor.execute("""
                     UPDATE products SET
-                        barcode = ?, brand = ?, name = ?, price = ?,
+                        brand = ?, name = ?, price = ?,
                         alias_id = ?, group_id = ?, discount_level = ?,
                         gct_applicable = ?, is_case = ?, case_quantity = ?
                     WHERE id = ?
-                """, (barcode, brand, name, price, alias_id, group_id,
+                """, (brand, name, price, alias_id, group_id,
                       disc_id, gct, is_case, case_qty,
                       self.editing_product_id))
 
