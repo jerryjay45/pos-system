@@ -258,13 +258,24 @@ class CheckoutDialog(QDialog):
             self.confirm_btn.setEnabled(True)
 
     def _confirm_payment(self):
-        """Save the transaction to the database and close the dialog."""
+        """Confirm payment with validation. Show warning if insufficient cash."""
         try:
             cash = float(self.cash_input.text() or "0")
         except ValueError:
+            QMessageBox.warning(
+                self, "Invalid Amount",
+                "Please enter a valid cash amount."
+            )
             return
 
         if cash < self.total:
+            QMessageBox.warning(
+                self, "Insufficient Cash",
+                f"Cash amount (${cash:.2f}) is less than total (${self.total:.2f}).\n\n"
+                f"Shortage: ${self.total - cash:.2f}"
+            )
+            self.cash_input.selectAll()
+            self.cash_input.setFocus()
             return
 
         change = round(cash - self.total, 2)

@@ -29,6 +29,14 @@ def create_tables():
     # PRODUCTS MODULE
     # ----------------------------------------------------------------
 
+    # Product groups — organize products
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS product_groups (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_name  TEXT    NOT NULL UNIQUE
+        )
+    """)
+
     # Alias — group identifier for products that share a description
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS aliases (
@@ -51,15 +59,18 @@ def create_tables():
     # Products — core product table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS products (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
-            barcode        TEXT    NOT NULL UNIQUE,
-            brand          TEXT,
-            name           TEXT    NOT NULL,
-            price          REAL    NOT NULL DEFAULT 0.0,
-            alias_id       INTEGER REFERENCES aliases(id) ON UPDATE CASCADE ON DELETE SET NULL,
-            discount_level INTEGER REFERENCES discount_levels(id) ON DELETE SET NULL,
-            case_quantity  INTEGER DEFAULT 1,
-            stock_enabled  INTEGER NOT NULL DEFAULT 1  -- 1 = active, 0 = hidden
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            barcode          TEXT    NOT NULL UNIQUE,
+            brand            TEXT,
+            name             TEXT    NOT NULL,
+            price            REAL    NOT NULL DEFAULT 0.0,
+            alias_id         INTEGER REFERENCES aliases(id) ON UPDATE CASCADE ON DELETE SET NULL,
+            group_id         INTEGER REFERENCES product_groups(id) ON DELETE SET NULL,
+            discount_level   INTEGER REFERENCES discount_levels(id) ON DELETE SET NULL,
+            case_quantity    INTEGER DEFAULT 1,
+            gct_applicable   INTEGER NOT NULL DEFAULT 1,  -- 1 = yes, 0 = no
+            is_case          INTEGER NOT NULL DEFAULT 0,   -- 1 = case item, 0 = single item
+            stock_enabled    INTEGER NOT NULL DEFAULT 1    -- 1 = active, 0 = hidden
         )
     """)
 

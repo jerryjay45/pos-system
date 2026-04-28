@@ -10,12 +10,20 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QTableWidget,
     QTableWidgetItem, QHeaderView, QFrame,
-    QListWidget, QListWidgetItem, QAbstractItemView
+    QListWidget, QListWidgetItem, QAbstractItemView, QSpinBox
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor
 from ui.base_window import BaseWindow
 from db import get_connection
+
+
+# Cart colors for visual distinction
+CART_COLORS = [
+    "#1a56db",  # Blue
+    "#1a9e6c",  # Green
+    "#c7622a",  # Orange
+]
 
 
 class CashierDashboard(BaseWindow):
@@ -138,31 +146,26 @@ class CashierDashboard(BaseWindow):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
 
-        # Header row
+        # Header row with qty spinbox and search
         header = QHBoxLayout()
         header.setSpacing(8)
 
-        self.cart_label = QPushButton("Cart 1")
-        self.cart_label.setFixedSize(110, 36)
-        self.cart_label.setStyleSheet("""
-            QPushButton {
-                background-color: #1a56db; color: #ffffff;
-                border: none; border-radius: 18px;
-                font-size: 13px; font-weight: 700;
+        # Quantity spinbox
+        qty_lbl = QLabel("Qty:")
+        qty_lbl.setStyleSheet("color: #8b949e; font-size: 12px;")
+        self.qty_spinbox = QSpinBox()
+        self.qty_spinbox.setMinimum(1)
+        self.qty_spinbox.setMaximum(9999)
+        self.qty_spinbox.setValue(1)
+        self.qty_spinbox.setFixedWidth(60)
+        self.qty_spinbox.setStyleSheet("""
+            QSpinBox {
+                background-color: #0d1117; color: #ffffff;
+                border: 1.5px solid #30363d; border-radius: 6px;
+                padding: 0 6px; font-size: 13px;
             }
+            QSpinBox:focus { border-color: #1a56db; }
         """)
-
-        prev_btn = QPushButton("←")
-        prev_btn.setFixedSize(36, 36)
-        prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        prev_btn.setStyleSheet(self._arrow_btn_style())
-        prev_btn.clicked.connect(self._prev_cart)
-
-        next_btn = QPushButton("→")
-        next_btn.setFixedSize(36, 36)
-        next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        next_btn.setStyleSheet(self._arrow_btn_style())
-        next_btn.clicked.connect(self._next_cart)
 
         self.search_input = QLineEdit()
         self.search_input.setFixedHeight(36)
@@ -191,9 +194,8 @@ class CashierDashboard(BaseWindow):
         """)
         checkout_btn.clicked.connect(self._handle_checkout)
 
-        header.addWidget(self.cart_label)
-        header.addWidget(prev_btn)
-        header.addWidget(next_btn)
+        header.addWidget(qty_lbl)
+        header.addWidget(self.qty_spinbox)
         header.addWidget(self.search_input, stretch=1)
         header.addWidget(checkout_btn)
 
@@ -212,6 +214,7 @@ class CashierDashboard(BaseWindow):
             QListWidget::item:hover    { background-color: #30363d; }
         """)
         self.results_list.itemClicked.connect(self._add_from_results)
+        self.results_list.keyPressEvent = self._results_key_press
 
         # Cart table
         self.cart_table = QTableWidget()
@@ -269,7 +272,7 @@ class CashierDashboard(BaseWindow):
         layout.addLayout(btn_row)
         return panel
 
-    # ── Right panel — totals ─────────────────────────────────────────
+    # ── Right panel — totals & cart selector ──────────────────────────
     def _build_right_panel(self):
         panel = QFrame()
         panel.setFixedWidth(170)
@@ -277,11 +280,48 @@ class CashierDashboard(BaseWindow):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+
+        # Cart selector section at top
+        cart_section = QFrame()
+        cart_section.setStyleSheet(f"background-color: {CART_COLORS[self.active_cart]}; border: none;")
+        cart_layout = QVBoxLayout(cart_section)
+        cart_layout.setContentsMargins(14, 14, 14, 14)
+        cart_layout.setSpacing(10)
+
+        self.cart_number_label = QLabel(f"Cart {self.active_cart + 1}")
+        self.cart_number_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.cart_number_label.setStyleSheet("color: #ffffff; font-size: 16px; font-weight: 700; background: transparent;")
+
+        # Cart navigation buttons
+        nav_row = QHBoxLayout()
+        nav_row.setSpacing(6)
+
+        prev_btn = QPushButton("←")
+        prev_btn.setFixedSize(36, 36)
+        prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        prev_btn.setStyleSheet(self._arrow_btn_style())
+        prev_btn.clicked.connect(self._prev_cart)
+
+        next_btn = QPushButton("→")
+        next_btn.setFixedSize(36, 36)
+        next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        next_btn.setStyleSheet(self._arrow_btn_style())
+        next_btn.clicked.connect(self._next_cart)
+
+        nav_row.addWidget(prev_btn)
+        nav_row.addStretch()
+        nav_row.addWidget(next_btn)
+
+        cart_layout.addWidget(self.cart_number_label)
+        cart_layout.addLayout(nav_row)
+        self.cart_section = cart_section
+
+        layout.addWidget(cart_section)
         layout.addStretch()
 
         def block(title, attr, big=False):
             f = QFrame()
-            f.setStyleSheet("background-color: #1a56db; border: none;")
+            f.setStyleSheet(f"background-color: {CART_COLORS[self.active_cart]}; border: none;")
             bl = QVBoxLayout(f)
             bl.setContentsMargins(14, 14, 14, 14)
             bl.setSpacing(4)
@@ -301,6 +341,7 @@ class CashierDashboard(BaseWindow):
             bl.addWidget(t)
             bl.addWidget(v)
             setattr(self, attr, v)
+            setattr(self, f"{attr}_frame", f)
             return f
 
         # Change display — shown after each transaction, hidden initially
@@ -354,7 +395,13 @@ class CashierDashboard(BaseWindow):
         self._switch_cart()
 
     def _switch_cart(self):
-        self.cart_label.setText(f"Cart {self.active_cart + 1}")
+        self.cart_number_label.setText(f"Cart {self.active_cart + 1}")
+        color = CART_COLORS[self.active_cart]
+        self.cart_section.setStyleSheet(f"background-color: {color}; border: none;")
+        self.subtotal_label_frame.setStyleSheet(f"background-color: {color}; border: none;")
+        self.gct_label_frame.setStyleSheet(f"background-color: {color}; border: none;")
+        self.discount_label_frame.setStyleSheet(f"background-color: {color}; border: none;")
+        self.total_label_frame.setStyleSheet(f"background-color: {color}; border: none;")
         self.results_list.setVisible(False)
         self.search_input.clear()
         self._refresh_table()
@@ -365,32 +412,61 @@ class CashierDashboard(BaseWindow):
         return self.carts[self.active_cart]
 
     # ----------------------------------------------------------------
-    # SEARCH
+    # SEARCH & RESULTS NAVIGATION
     # ----------------------------------------------------------------
 
     def _search_key_press(self, event):
-        if event.key() == Qt.Key.Key_Tab:
-            if not self.search_input.text().strip():
-                self._handle_checkout()
-                return
+        if event.key() == Qt.Key.Key_Up:
+            # Focus qty spinbox when up arrow is pressed
+            self.qty_spinbox.setFocus()
+            self.qty_spinbox.selectAll()
+            return
+        elif event.key() == Qt.Key.Key_Down:
+            # Move to results list when down arrow is pressed
+            if self.results_list.isVisible() and self.results_list.count() > 0:
+                self.results_list.setCurrentRow(0)
+                self.results_list.setFocus()
+            return
         QLineEdit.keyPressEvent(self.search_input, event)
 
+    def _results_key_press(self, event):
+        if event.key() == Qt.Key.Key_Down:
+            current = self.results_list.currentRow()
+            if current < self.results_list.count() - 1:
+                self.results_list.setCurrentRow(current + 1)
+        elif event.key() == Qt.Key.Key_Up:
+            current = self.results_list.currentRow()
+            if current > 0:
+                self.results_list.setCurrentRow(current - 1)
+            elif current == 0:
+                self.search_input.setFocus()
+        elif event.key() == Qt.Key.Key_Return:
+            if self.results_list.currentItem():
+                self._add_from_results(self.results_list.currentItem())
+        else:
+            QListWidget.keyPressEvent(self.results_list, event)
+
     def _handle_search_enter(self):
+        qty = self.qty_spinbox.value()
         text = self.search_input.text().strip()
         if not text:
             self._handle_checkout()
             return
         product = self._find_by_barcode(text)
         if product:
-            self._add_to_cart(product)
+            self._add_to_cart(product, qty)
             self.search_input.clear()
+            self.qty_spinbox.setValue(1)
             self.results_list.setVisible(False)
+            self.search_input.setFocus()
             return
         results = self._search_by_name(text)
         if len(results) == 1:
-            self._add_to_cart(results[0])
+            self._add_to_cart(results[0], qty)
             self.search_input.clear()
+            self.qty_spinbox.setValue(1)
             self.results_list.setVisible(False)
+            self.search_input.setFocus()
         else:
             self._show_results(results)
 
@@ -435,41 +511,48 @@ class CashierDashboard(BaseWindow):
         self.results_list.setVisible(True)
 
     def _add_from_results(self, item):
+        qty = self.qty_spinbox.value()
         product = item.data(Qt.ItemDataRole.UserRole)
         if product:
-            self._add_to_cart(product)
+            self._add_to_cart(product, qty)
             self.search_input.clear()
+            self.qty_spinbox.setValue(1)
             self.results_list.setVisible(False)
+            self.search_input.setFocus()
 
     # ----------------------------------------------------------------
     # QUICK KEYS
     # ----------------------------------------------------------------
 
     def _add_quick_key(self, idx):
+        qty = self.qty_spinbox.value()
         if idx < len(self.quick_keys):
             qk = self.quick_keys[idx]
             self._add_to_cart((
                 qk["id"], qk["name"], qk["price"],
                 qk.get("discount_level"), qk.get("gct_applicable", 1)
-            ))
+            ), qty)
+            self.qty_spinbox.setValue(1)
 
     # ----------------------------------------------------------------
     # CART MANAGEMENT
     # ----------------------------------------------------------------
 
-    def _add_to_cart(self, product):
+    def _add_to_cart(self, product, qty=1):
         pid, name, price, discount_level, gct_applicable = product
         gct   = round(price * (self.gct_rate / 100), 2) if gct_applicable else 0.0
-        total = round(price + gct, 2)
+        total = round((price + gct) * qty, 2)
+
         for item in self.cart:
             if item["id"] == pid:
-                item["qty"]  += 1
+                item["qty"]  += qty
                 item["total"] = round((item["price"] + item["gct"]) * item["qty"], 2)
                 self._refresh_table()
                 self._update_totals()
                 return
+
         self.cart.append({
-            "id": pid, "name": name, "qty": 1,
+            "id": pid, "name": name, "qty": qty,
             "price": price, "gct": gct, "total": total,
             "gct_applicable": gct_applicable,
         })
@@ -489,7 +572,7 @@ class CashierDashboard(BaseWindow):
             self.cart_table.setItem(row, 0, cell(item["name"]))
             self.cart_table.setItem(row, 1, cell(item["qty"],                align=center))
             self.cart_table.setItem(row, 2, cell(f"${item['price']:.2f}", "#4493f8", center))
-            self.cart_table.setItem(row, 3, cell(f"${item['gct']:.2f}",   "#4493f8", center))
+            self.cart_table.setItem(row, 3, cell(f"${item['gct'] * item['qty']:.2f}",   "#4493f8", center))
             self.cart_table.setItem(row, 4, cell(f"${item['total']:.2f}", "#4493f8", center))
             remove_btn = QPushButton("✕")
             remove_btn.setStyleSheet("""
@@ -624,12 +707,12 @@ class CashierDashboard(BaseWindow):
 
     def _arrow_btn_style(self):
         return """QPushButton {
-                background-color: #21262d; color: #4493f8;
-                border: 1.5px solid #30363d; border-radius: 18px;
+                background-color: rgba(255,255,255,0.1); color: #ffffff;
+                border: 1.5px solid rgba(255,255,255,0.2); border-radius: 18px;
                 font-size: 16px; font-weight: 700;
             }
-            QPushButton:hover   { background-color: #1a56db; color: #ffffff; border-color: #1a56db; }
-            QPushButton:pressed { background-color: #1145b0; }"""
+            QPushButton:hover   { background-color: rgba(255,255,255,0.2); }
+            QPushButton:pressed { background-color: rgba(255,255,255,0.3); }"""
 
     def _action_btn_style(self):
         return """QPushButton {

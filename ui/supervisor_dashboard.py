@@ -9,9 +9,9 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QTabWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QLineEdit, QComboBox, QCheckBox, QAbstractItemView,
-    QMessageBox, QScrollArea, QSizePolicy, QFormLayout
+    QMessageBox, QScrollArea, QSizePolicy, QFormLayout, QCompleter
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QStringListModel
 from PyQt6.QtGui import QColor, QDoubleValidator, QIntValidator
 from ui.base_window import BaseWindow
 from db import get_connection
@@ -236,6 +236,8 @@ class SupervisorDashboard(BaseWindow):
             QScrollBar:vertical { background: #161b22; width: 6px; border-radius: 3px; }
             QScrollBar::handle:vertical { background: #30363d; border-radius: 3px; }
         """)
+        self.product_table.doubleClicked.connect(self._on_table_double_click)
+        self.product_table.keyPressEvent = self._on_table_key_press
 
         layout.addLayout(toolbar)
         layout.addWidget(self.product_table, stretch=1)
@@ -273,18 +275,22 @@ class SupervisorDashboard(BaseWindow):
         self.f_price    = self._form_input("Price",    "0.00")
         self.f_price.setValidator(QDoubleValidator(0, 999999, 2))
 
+        # Setup alias autocomplete
+        self._setup_alias_completer()
+
         # Alias pulled price hint
         self.alias_hint = QLabel("")
         self.alias_hint.setStyleSheet("color: #4493f8; font-size: 11px;")
         self.alias_hint.setVisible(False)
         self.f_alias.textChanged.connect(self._on_alias_changed)
 
-        # Group dropdown
+        # Group field with autocomplete
         grp_lbl = QLabel("Group")
         grp_lbl.setStyleSheet("color: #8b949e; font-size: 11px; text-transform: uppercase;")
         self.f_group = QComboBox()
+        self.f_group.setEditable(True)
         self.f_group.setStyleSheet(self._combo_style())
-        self._populate_groups()
+        self._setup_group_completer()
 
         # Discount level dropdown
         disc_lbl = QLabel("Discount Level")
@@ -473,6 +479,48 @@ class SupervisorDashboard(BaseWindow):
         return lbl
 
     # ----------------------------------------------------------------
+    # AUTOCOMPLETE SETUP
+    # ----------------------------------------------------------------
+
+    def _setup_alias_completer(self):
+        """Setup alias field with autocomplete suggestions."""
+        self.alias_completer = QCompleter()
+        self.alias_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.alias_completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.f_alias.setCompleter(self.alias_completer)
+        self._update_alias_suggestions()
+
+    def _setup_group_completer(self):
+        """Setup group field with autocomplete suggestions."""
+        self.group_completer = QCompleter()
+        self.group_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.group_completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.f_group.setCompleter(self.group_completer)
+        self._update_group_suggestions()
+
+    def _update_alias_suggestions(self):
+        """Refresh alias autocomplete suggestions from database."""
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT alias_name FROM aliases ORDER BY alias_name")
+        aliases = [row[0] for row in cursor.fetchall()]
+        conn.close()
+
+        model = QStringListModel(aliases)
+        self.alias_completer.setModel(model)
+
+    def _update_group_suggestions(self):
+        """Refresh group autocomplete suggestions from database."""
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT group_name FROM product_groups ORDER BY group_name")
+        groups = [row[0] for row in cursor.fetchall()]
+        conn.close()
+
+        model = QStringListModel(groups)
+        self.group_completer.setModel(model)
+
+    # ----------------------------------------------------------------
     # CASE TOGGLE & ALIAS LOGIC
     # ----------------------------------------------------------------
 
@@ -655,6 +703,25 @@ class SupervisorDashboard(BaseWindow):
     def _search_products(self):
         self._load_products(self.product_search.text().strip())
 
+    def _on_table_double_click(self, index):
+        """Double-click a product row to edit it."""
+        row = index.row()
+        if row >= 0 and row < self.product_table.rowCount():
+            product_id = self.product_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            if product_id:
+                self._edit_product(product_id)
+
+    def _on_table_key_press(self, event):
+        """Handle key presses in product table."""
+        if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
+            current = self.product_table.currentRow()
+            if current >= 0:
+                product_id = self.product_table.item(current, 0).data(Qt.ItemDataRole.UserRole)
+                if product_id:
+                    self._edit_product(product_id)
+        else:
+            QTableWidget.keyPressEvent(self.product_table, event)
+
     # ----------------------------------------------------------------
     # FORM ACTIONS
     # ----------------------------------------------------------------
@@ -684,6 +751,8 @@ class SupervisorDashboard(BaseWindow):
         self.t_gct.setChecked(True)
         self.t_case.setChecked(False)
         self.case_box.setVisible(False)
+        self.f_group.setCurrentIndex(0)
+        self.f_discount.setCurrentIndex(0)
 
     def _edit_product(self, product_id):
         """Load product data into the form for editing."""
@@ -754,7 +823,7 @@ class SupervisorDashboard(BaseWindow):
             except ValueError:
                 case_qty = 0
 
-        group_id = self.f_group.currentData()
+        group_name = self.f_group.currentText().strip()
         disc_id  = self.f_discount.currentData()
 
         try:
@@ -769,6 +838,15 @@ class SupervisorDashboard(BaseWindow):
                 cursor.execute(
                     "SELECT id FROM aliases WHERE alias_name = ?", (alias,))
                 alias_id = cursor.fetchone()[0]
+
+            # Get or create group
+            group_id = None
+            if group_name and group_name != "— None —":
+                cursor.execute(
+                    "INSERT OR IGNORE INTO product_groups (group_name) VALUES (?)", (group_name,))
+                cursor.execute(
+                    "SELECT id FROM product_groups WHERE group_name = ?", (group_name,))
+                group_id = cursor.fetchone()[0]
 
             if self.editing_product_id:
                 cursor.execute("""
@@ -802,6 +880,8 @@ class SupervisorDashboard(BaseWindow):
             QMessageBox.information(self, "Saved",
                                     f"Product '{name}' saved successfully!")
             self._clear_form()
+            self._update_alias_suggestions()
+            self._update_group_suggestions()
             self._load_products()
 
         except Exception as e:
