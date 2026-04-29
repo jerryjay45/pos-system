@@ -15,14 +15,14 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor
 from ui.base_window import BaseWindow
-from db import get_connection
+from db import get_products_conn, get_business_conn
 
 
 # Cart colors for visual distinction
 CART_COLORS = [
-    "#1a56db",  # Cart 1 — Blue
-    "#7c3aed",  # Cart 2 — Purple
-    "#0d9488",  # Cart 3 — Teal
+    "#1a56db",  # Blue
+    "#1a9e6c",  # Green
+    "#c7622a",  # Orange
 ]
 
 
@@ -471,23 +471,23 @@ class CashierDashboard(BaseWindow):
             self._show_results(results)
 
     def _find_by_barcode(self, barcode):
-        conn = get_connection()
+        conn = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
             SELECT p.id, p.name, p.price, p.discount_level, p.gct_applicable
-            FROM products p WHERE p.barcode = ? AND p.stock_enabled = 1
+            FROM products p WHERE p.barcode = ?
         """, (barcode,))
         row = cursor.fetchone()
         conn.close()
         return row
 
     def _search_by_name(self, query):
-        conn = get_connection()
+        conn = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
             SELECT p.id, p.name, p.price, p.discount_level, p.gct_applicable
             FROM products p
-            WHERE (p.name LIKE ? OR p.brand LIKE ?) AND p.stock_enabled = 1
+            WHERE (p.name LIKE ? OR p.brand LIKE ?)
             LIMIT 20
         """, (f"%{query}%", f"%{query}%"))
         rows = cursor.fetchall()
@@ -617,7 +617,7 @@ class CashierDashboard(BaseWindow):
         if not self.cart:
             return
         from ui.checkout_dialog import CheckoutDialog
-        dialog = CheckoutDialog(self.cart, self.user_id, self.gct_rate, self)
+        dialog = CheckoutDialog(self.cart, self.user_id, self.full_name, self.gct_rate, self)
         if dialog.exec():
             # Show change due on the dashboard for the customer to see
             self._show_change(dialog.change_given)
@@ -656,7 +656,7 @@ class CashierDashboard(BaseWindow):
     # ----------------------------------------------------------------
 
     def _load_gct_rate(self):
-        conn = get_connection()
+        conn = get_business_conn()
         cursor = conn.cursor()
         cursor.execute("SELECT tax_percent FROM business_info WHERE id = 1")
         row = cursor.fetchone()
@@ -664,7 +664,7 @@ class CashierDashboard(BaseWindow):
         return row[0] if row and row[0] else 16.5
 
     def _load_quick_keys(self):
-        conn = get_connection()
+        conn = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
             SELECT p.id, p.name, p.price, p.discount_level, p.gct_applicable

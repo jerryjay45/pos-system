@@ -178,9 +178,9 @@ class LoginWindow(QMainWindow):
         Returns the user row if valid, None if not.
         """
         import hashlib
-        from db import get_connection
+        from db import get_users_conn
 
-        conn = get_connection()
+        conn = get_users_conn()
         cursor = conn.cursor()
 
         # Hash the entered password to compare with stored hash

@@ -9,12 +9,13 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QTabWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QLineEdit, QComboBox, QCheckBox, QAbstractItemView,
-    QMessageBox, QScrollArea, QSizePolicy, QFormLayout, QCompleter
+    QMessageBox, QScrollArea, QSizePolicy, QFormLayout, QCompleter,
+    QSplitter, QTreeWidget, QTreeWidgetItem
 )
 from PyQt6.QtCore import Qt, QTimer, QStringListModel
 from PyQt6.QtGui import QColor, QDoubleValidator, QIntValidator
 from ui.base_window import BaseWindow
-from db import get_connection
+from db import get_products_conn, get_users_conn, get_transactions_conn, get_business_conn
 
 
 class SupervisorDashboard(BaseWindow):
@@ -500,7 +501,7 @@ class SupervisorDashboard(BaseWindow):
 
     def _update_alias_suggestions(self):
         """Refresh alias autocomplete suggestions from database."""
-        conn = get_connection()
+        conn = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("SELECT DISTINCT alias_name FROM aliases ORDER BY alias_name")
         aliases = [row[0] for row in cursor.fetchall()]
@@ -511,7 +512,7 @@ class SupervisorDashboard(BaseWindow):
 
     def _update_group_suggestions(self):
         """Refresh group autocomplete suggestions from database."""
-        conn = get_connection()
+        conn = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("SELECT DISTINCT group_name FROM product_groups ORDER BY group_name")
         groups = [row[0] for row in cursor.fetchall()]
@@ -583,7 +584,7 @@ class SupervisorDashboard(BaseWindow):
         """Return (id, name, price) of the single item with this alias."""
         if not alias:
             return None
-        conn   = get_connection()
+        conn   = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
             SELECT p.id, p.name, p.price
@@ -601,7 +602,7 @@ class SupervisorDashboard(BaseWindow):
     # ----------------------------------------------------------------
 
     def _load_products(self, query=""):
-        conn   = get_connection()
+        conn   = get_products_conn()
         cursor = conn.cursor()
         if query:
             like = f"%{query}%"
@@ -739,17 +740,6 @@ class SupervisorDashboard(BaseWindow):
 
     def _clear_form_fields(self):
         self.f_barcode.clear()
-        # Unlock barcode when switching back to add mode
-        self.f_barcode.setReadOnly(False)
-        self.f_barcode.setStyleSheet("""
-            QLineEdit {
-                background-color: #161b22; color: #ffffff;
-                border: 1px solid #30363d; border-radius: 6px;
-                padding: 0 10px; font-size: 13px;
-            }
-            QLineEdit:focus { border-color: #1a56db; }
-        """)
-        self.f_barcode.setToolTip("")
         self.f_brand.clear()
         self.f_name.clear()
         self.f_alias.clear()
@@ -767,7 +757,7 @@ class SupervisorDashboard(BaseWindow):
 
     def _edit_product(self, product_id):
         """Load product data into the form for editing."""
-        conn   = get_connection()
+        conn   = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
             SELECT p.id, p.barcode, p.brand, p.name, p.price,
@@ -787,16 +777,6 @@ class SupervisorDashboard(BaseWindow):
         self.form_title.setText("✏  Edit Product")
 
         self.f_barcode.setText(barcode or "")
-        # Lock barcode — cannot be changed while editing
-        self.f_barcode.setReadOnly(True)
-        self.f_barcode.setStyleSheet("""
-            QLineEdit {
-                background-color: #0d1117; color: #484f58;
-                border: 1px solid #21262d; border-radius: 6px;
-                padding: 0 10px; font-size: 13px;
-            }
-        """)
-        self.f_barcode.setToolTip("Barcode cannot be changed after a product is created")
         self.f_brand.setText(brand   or "")
         self.f_name.setText(name     or "")
         self.f_alias.setText(alias   or "")
@@ -848,24 +828,8 @@ class SupervisorDashboard(BaseWindow):
         disc_id  = self.f_discount.currentData()
 
         try:
-            conn   = get_connection()
+            conn   = get_products_conn()
             cursor = conn.cursor()
-
-            # FIX 1 — Check for duplicate barcode on new products only
-            if not self.editing_product_id:
-                cursor.execute(
-                    "SELECT id, name FROM products WHERE barcode = ?", (barcode,))
-                existing = cursor.fetchone()
-                if existing:
-                    conn.close()
-                    QMessageBox.warning(
-                        self, "Duplicate Barcode",
-                        f"Barcode '{barcode}' is already used by:\n'{existing[1]}'\n\n"
-                        f"Please use a different barcode."
-                    )
-                    self.f_barcode.selectAll()
-                    self.f_barcode.setFocus()
-                    return
 
             # Get or create alias
             alias_id = None
@@ -886,14 +850,13 @@ class SupervisorDashboard(BaseWindow):
                 group_id = cursor.fetchone()[0]
 
             if self.editing_product_id:
-                # FIX 2 — Barcode NOT updated — it is locked/read-only in edit mode
                 cursor.execute("""
                     UPDATE products SET
-                        brand = ?, name = ?, price = ?,
+                        barcode = ?, brand = ?, name = ?, price = ?,
                         alias_id = ?, group_id = ?, discount_level = ?,
                         gct_applicable = ?, is_case = ?, case_quantity = ?
                     WHERE id = ?
-                """, (brand, name, price, alias_id, group_id,
+                """, (barcode, brand, name, price, alias_id, group_id,
                       disc_id, gct, is_case, case_qty,
                       self.editing_product_id))
 
@@ -913,7 +876,31 @@ class SupervisorDashboard(BaseWindow):
                       disc_id, gct, is_case, case_qty))
 
             conn.commit()
-            conn.close()
+
+            # POINT 2 — If editing a single item price, offer to sync alias siblings
+            if self.editing_product_id and not is_case and alias_id:
+                cursor.execute(
+                    "SELECT id, name FROM products WHERE alias_id = ? AND is_case = 0 AND id != ?",
+                    (alias_id, self.editing_product_id)
+                )
+                siblings = cursor.fetchall()
+                conn.close()
+                if siblings:
+                    sibling_names = ", ".join(s[1] for s in siblings)
+                    reply = QMessageBox.question(
+                        self, "Sync Alias Prices",
+                        f"Update price to ${price:.2f} for all other single items "
+                        f"with alias '{alias}'?\n\nAffected: {sibling_names}",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        conn2 = get_products_conn()
+                        for sid, _ in siblings:
+                            conn2.execute("UPDATE products SET price = ? WHERE id = ?", (price, sid))
+                        conn2.commit()
+                        conn2.close()
+            else:
+                conn.close()
 
             QMessageBox.information(self, "Saved",
                                     f"Product '{name}' saved successfully!")
@@ -927,7 +914,7 @@ class SupervisorDashboard(BaseWindow):
 
     def _delete_product(self, product_id):
         """Delete a product after confirmation."""
-        conn   = get_connection()
+        conn   = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM products WHERE id = ?", (product_id,))
         row = cursor.fetchone()
@@ -941,7 +928,7 @@ class SupervisorDashboard(BaseWindow):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
-            conn   = get_connection()
+            conn   = get_products_conn()
             conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
             conn.commit()
             conn.close()
@@ -953,7 +940,7 @@ class SupervisorDashboard(BaseWindow):
 
     def _populate_groups(self):
         self.f_group.addItem("— None —", None)
-        conn   = get_connection()
+        conn   = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("SELECT id, group_name FROM product_groups ORDER BY group_name")
         for gid, gname in cursor.fetchall():
@@ -962,7 +949,7 @@ class SupervisorDashboard(BaseWindow):
 
     def _populate_discount_levels(self):
         self.f_discount.addItem("— None —", None)
-        conn   = get_connection()
+        conn   = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("SELECT id, level_name FROM discount_levels ORDER BY id")
         for did, dname in cursor.fetchall():

@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QDoubleValidator
-from db import get_connection
+from db import get_transactions_conn
 
 
 class CheckoutDialog(QDialog):
@@ -20,11 +20,12 @@ class CheckoutDialog(QDialog):
     and saves the transaction to the database on confirmation.
     """
 
-    def __init__(self, cart, user_id, gct_rate, parent=None):
+    def __init__(self, cart, user_id, cashier_name, gct_rate, parent=None):
         super().__init__(parent)
-        self.cart      = cart
-        self.user_id   = user_id
-        self.gct_rate  = gct_rate
+        self.cart         = cart
+        self.user_id      = user_id
+        self.cashier_name = cashier_name
+        self.gct_rate     = gct_rate
 
         # Calculate totals from cart
         self.subtotal    = round(sum(i["price"] * i["qty"] for i in cart), 2)
@@ -306,7 +307,7 @@ class CheckoutDialog(QDialog):
     def _save_transaction(self, cash_tendered, change):
         """Save the completed transaction and all its items to the database."""
         try:
-            conn = get_connection()
+            conn = get_transactions_conn()
             cursor = conn.cursor()
             now  = datetime.now()
             date = now.strftime("%Y-%m-%d")
@@ -315,32 +316,37 @@ class CheckoutDialog(QDialog):
             # Get or create session for this cashier
             session_id = self._get_or_create_session(cursor)
 
-            # Insert transaction
+            # Insert transaction with cashier name snapshot
             cursor.execute("""
                 INSERT INTO transactions
-                    (session_id, cashier_id, date, time,
+                    (session_id, cashier_id, cashier_name, date, time,
                      subtotal, tax_amount, total, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'completed')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed')
             """, (
-                session_id, self.user_id, date, time,
-                self.subtotal, self.gct_total, self.total
+                session_id, self.user_id, self.cashier_name,
+                date, time, self.subtotal, self.gct_total, self.total
             ))
             transaction_id = cursor.lastrowid
 
-            # Insert each cart item
+            # Insert each cart item with snapshots
             for item in self.cart:
                 cursor.execute("""
                     INSERT INTO transaction_items
-                        (transaction_id, product_id, quantity,
-                         unit_price, discount_applied, line_total)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                        (transaction_id, product_id,
+                         product_name_snapshot, barcode_snapshot,
+                         unit_price_snapshot, quantity,
+                         gct_applicable, discount_applied, line_total)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     transaction_id,
-                    item["id"],
-                    item["qty"],
+                    item.get("id"),
+                    item["name"],
+                    item.get("barcode", ""),
                     item["price"],
+                    item["qty"],
+                    item.get("gct_applicable", 1),
                     item.get("discount_applied", 0.0),
-                    item["total"]
+                    round(item["price"] * item["qty"], 2)
                 ))
 
             # Update session total
@@ -372,7 +378,7 @@ class CheckoutDialog(QDialog):
         # No open session — create one
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute("""
-            INSERT INTO sessions (cashier_id, started_at, total_sales)
-            VALUES (?, ?, 0.0)
-        """, (self.user_id, now))
+            INSERT INTO sessions (cashier_id, cashier_name, started_at, total_sales)
+            VALUES (?, ?, ?, 0.0)
+        """, (self.user_id, self.cashier_name, now))
         return cursor.lastrowid
