@@ -1,7 +1,7 @@
 """
 ui/supervisor_dashboard.py
 Supervisor dashboard with tabbed interface.
-Tabs: Checkout | Products | Reports | Void / Refund
+Tabs: Checkout | Products | Reports | Transactions | Void / Refund
 """
 
 from datetime import datetime
@@ -116,10 +116,11 @@ class SupervisorDashboard(BaseWindow):
             QTabBar::tab:hover { background-color: #30363d; color: #ffffff; }
         """)
 
-        self.tabs.addTab(self._build_checkout_tab(),   "Checkout")
-        self.tabs.addTab(self._build_products_tab(),   "Products")
-        self.tabs.addTab(self._build_reports_tab(),    "Reports")
-        self.tabs.addTab(self._build_void_tab(),       "Void / Refund")
+        self.tabs.addTab(self._build_checkout_tab(),      "Checkout")
+        self.tabs.addTab(self._build_products_tab(),      "Products")
+        self.tabs.addTab(self._build_reports_tab(),       "Reports")
+        self.tabs.addTab(self._build_transactions_tab(),  "Transactions")
+        self.tabs.addTab(self._build_void_tab(),          "Void / Refund")
         self.tabs.setCurrentIndex(1)
         return self.tabs
 
@@ -135,15 +136,748 @@ class SupervisorDashboard(BaseWindow):
         return w
 
     # ── Reports tab — stub ───────────────────────────────────────────
+    # ================================================================
+    # REPORTS TAB — Cashing Sessions
+    # ================================================================
+
     def _build_reports_tab(self):
         w = QWidget()
         w.setStyleSheet("background-color: #161b22;")
-        l = QVBoxLayout(w)
-        lbl = QLabel("Reports — coming soon")
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setStyleSheet("color: #8b949e; font-size: 16px;")
-        l.addWidget(lbl)
+        layout = QHBoxLayout(w)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        _btn_outline = """
+            QPushButton {
+                background: transparent; color: #c9d1d9;
+                border: 1.5px solid #30363d; border-radius: 17px;
+                font-size: 12px; font-weight: 600; padding: 0 14px;
+            }
+            QPushButton:hover  { background: #21262d; color: #ffffff; }
+            QPushButton:pressed{ background: #30363d; }
+            QPushButton:disabled{ color: #3d444d; border-color: #21262d; }
+        """
+        _btn_red = """
+            QPushButton {
+                background: #7f1d1d; color: #fca5a5;
+                border: none; border-radius: 17px;
+                font-size: 12px; font-weight: 600; padding: 0 14px;
+            }
+            QPushButton:hover  { background: #991b1b; }
+            QPushButton:pressed{ background: #b91c1c; }
+            QPushButton:disabled{ background: #2d1515; color: #6b3030; }
+        """
+        _btn_green = """
+            QPushButton {
+                background: #14532d; color: #86efac;
+                border: none; border-radius: 17px;
+                font-size: 12px; font-weight: 600; padding: 0 14px;
+            }
+            QPushButton:hover  { background: #166534; }
+            QPushButton:pressed{ background: #15803d; }
+        """
+
+        # ── Left panel: cashier list ─────────────────────────────────
+        left = QFrame()
+        left.setFixedWidth(265)
+        left.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(10, 10, 10, 10)
+        left_layout.setSpacing(8)
+
+        lbl_cashiers = QLabel("CASHIERS")
+        lbl_cashiers.setStyleSheet("color: #8b949e; font-size: 10px; font-weight: 700; letter-spacing: 1px;")
+
+        self.rpt_cashier_search = QLineEdit()
+        self.rpt_cashier_search.setPlaceholderText("\U0001f50d  Search cashier\u2026")
+        self.rpt_cashier_search.setFixedHeight(34)
+        self.rpt_cashier_search.setStyleSheet("""
+            QLineEdit {
+                background-color: #161b22; color: #ffffff;
+                border: 1.5px solid #30363d; border-radius: 17px;
+                padding: 0 12px; font-size: 12px;
+            }
+            QLineEdit:focus { border-color: #1a56db; }
+        """)
+        self.rpt_cashier_search.textChanged.connect(self._rpt_filter_cashiers)
+
+        self.rpt_cashier_list = QTableWidget()
+        self.rpt_cashier_list.setColumnCount(2)
+        self.rpt_cashier_list.setHorizontalHeaderLabels(["Name", "Sales"])
+        self.rpt_cashier_list.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.rpt_cashier_list.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.rpt_cashier_list.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.rpt_cashier_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.rpt_cashier_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.rpt_cashier_list.verticalHeader().setVisible(False)
+        self.rpt_cashier_list.setShowGrid(False)
+        self.rpt_cashier_list.setStyleSheet("""
+            QTableWidget { background: transparent; color: #c9d1d9; border: none; font-size: 12px; }
+            QTableWidget::item { padding: 8px; border-bottom: 1px solid #21262d; }
+            QTableWidget::item:selected { background-color: #1a56db33; color: #ffffff; border-left: 3px solid #1a56db; }
+            QHeaderView::section { background: #0d1117; color: #8b949e; border: none;
+                                   padding: 6px 8px; font-size: 11px; font-weight: 700;
+                                   border-bottom: 1px solid #21262d; }
+        """)
+        self.rpt_cashier_list.selectionModel().selectionChanged.connect(self._rpt_on_cashier_selected)
+
+        left_layout.addWidget(lbl_cashiers)
+        left_layout.addWidget(self.rpt_cashier_search)
+        left_layout.addWidget(self.rpt_cashier_list, stretch=1)
+
+        # ── Right panel ──────────────────────────────────────────────
+        right = QFrame()
+        right.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(14, 14, 14, 14)
+        right_layout.setSpacing(10)
+
+        # Summary cards
+        cards_row = QHBoxLayout()
+        self.rpt_cards = {}
+        for key, label, color in [
+            ("total_sales",  "TOTAL SALES",   "#3dd68c"),
+            ("total_gct",    "TOTAL GCT",     "#3dd68c"),
+            ("transactions", "TRANSACTIONS",  "#a78bfa"),
+            ("discounts",    "DISCOUNTS",     "#f59e0b"),
+        ]:
+            card = QFrame()
+            card.setFixedHeight(72)
+            card.setStyleSheet("background: #161b22; border-radius: 8px;")
+            cl = QVBoxLayout(card)
+            cl.setContentsMargins(14, 8, 14, 8)
+            cl.setSpacing(2)
+            t = QLabel(label)
+            t.setStyleSheet("color: #8b949e; font-size: 10px; font-weight: 700;")
+            v = QLabel("\u2014")
+            v.setStyleSheet(f"color: {color}; font-size: 20px; font-weight: 700;")
+            cl.addWidget(t)
+            cl.addWidget(v)
+            self.rpt_cards[key] = v
+            cards_row.addWidget(card)
+        right_layout.addLayout(cards_row)
+
+        # Session bar
+        session_bar = QHBoxLayout()
+        session_bar.setSpacing(8)
+
+        self.rpt_session_header = QLabel("Select a cashier to view sessions")
+        self.rpt_session_header.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: 700;")
+
+        self.rpt_search_bar = QLineEdit()
+        self.rpt_search_bar.setPlaceholderText("\U0001f50d  Date or session #\u2026")
+        self.rpt_search_bar.setFixedHeight(34)
+        self.rpt_search_bar.setFixedWidth(200)
+        self.rpt_search_bar.setStyleSheet("""
+            QLineEdit {
+                background-color: #161b22; color: #ffffff;
+                border: 1.5px solid #30363d; border-radius: 17px;
+                padding: 0 12px; font-size: 12px;
+            }
+            QLineEdit:focus { border-color: #1a56db; }
+        """)
+        self.rpt_search_bar.textChanged.connect(self._rpt_filter_sessions)
+
+        self.rpt_refresh_btn = QPushButton("\u21bb  Refresh")
+        self.rpt_refresh_btn.setFixedHeight(34)
+        self.rpt_refresh_btn.setStyleSheet(_btn_outline)
+        self.rpt_refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rpt_refresh_btn.clicked.connect(self._rpt_refresh)
+
+        self.rpt_close_btn = QPushButton("Close Session")
+        self.rpt_close_btn.setFixedHeight(34)
+        self.rpt_close_btn.setStyleSheet(_btn_red)
+        self.rpt_close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rpt_close_btn.setEnabled(False)
+        self.rpt_close_btn.clicked.connect(self._rpt_close_session)
+
+        self.rpt_open_btn = QPushButton("Open New Session")
+        self.rpt_open_btn.setFixedHeight(34)
+        self.rpt_open_btn.setStyleSheet(_btn_green)
+        self.rpt_open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rpt_open_btn.clicked.connect(self._rpt_open_session)
+
+        self.rpt_print_btn = QPushButton("Print Summary")
+        self.rpt_print_btn.setFixedHeight(34)
+        self.rpt_print_btn.setStyleSheet(_btn_outline)
+        self.rpt_print_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rpt_print_btn.setEnabled(False)
+
+        session_bar.addWidget(self.rpt_session_header)
+        session_bar.addStretch()
+        session_bar.addWidget(self.rpt_search_bar)
+        session_bar.addWidget(self.rpt_refresh_btn)
+        session_bar.addWidget(self.rpt_close_btn)
+        session_bar.addWidget(self.rpt_open_btn)
+        session_bar.addWidget(self.rpt_print_btn)
+        right_layout.addLayout(session_bar)
+
+        # Session list
+        self.rpt_session_list = QTableWidget()
+        self.rpt_session_list.setColumnCount(5)
+        self.rpt_session_list.setHorizontalHeaderLabels(["Session", "Status", "Opened", "Closed", "Sales"])
+        self.rpt_session_list.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.rpt_session_list.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.rpt_session_list.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.rpt_session_list.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.rpt_session_list.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.rpt_session_list.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.rpt_session_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.rpt_session_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.rpt_session_list.verticalHeader().setVisible(False)
+        self.rpt_session_list.setShowGrid(False)
+        self.rpt_session_list.setStyleSheet("""
+            QTableWidget { background: transparent; color: #c9d1d9; border: none; font-size: 12px; }
+            QTableWidget::item { padding: 10px 8px; border-bottom: 1px solid #21262d; }
+            QTableWidget::item:selected { background-color: #1a56db33; color: #ffffff; }
+            QHeaderView::section { background: #0d1117; color: #8b949e; border: none; padding: 8px;
+                                   font-size: 11px; font-weight: 700; border-bottom: 1px solid #21262d; }
+        """)
+        self.rpt_session_list.selectionModel().selectionChanged.connect(self._rpt_on_session_selected)
+
+        right_layout.addWidget(self.rpt_session_list, stretch=1)
+
+        layout.addWidget(left)
+        layout.addWidget(right, stretch=1)
+
+        self._rpt_all_cashiers        = []
+        self._rpt_all_sessions        = []
+        self._rpt_selected_cashier_id = None
+        self._rpt_selected_session_id = None
+
+        self._rpt_load_cashiers()
         return w
+
+    # ── Reports: data loaders ────────────────────────────────────────
+
+    def _rpt_load_cashiers(self):
+        """Load distinct cashiers from cashing_sessions + running totals."""
+        try:
+            conn = get_transactions_conn()
+            rows = conn.execute("""
+                SELECT opened_by_id, opened_by_name,
+                       SUM(total_sales) AS total_sales,
+                       MAX(CASE WHEN status='open' THEN 1 ELSE 0 END) AS has_open
+                FROM cashing_sessions
+                GROUP BY opened_by_id, opened_by_name
+                ORDER BY opened_by_name
+            """).fetchall()
+            conn.close()
+        except Exception:
+            rows = []
+
+        self._rpt_all_cashiers = [
+            {"cashier_id": r[0], "cashier_name": r[1],
+             "total_sales": r[2] or 0.0, "has_open": r[3]}
+            for r in rows
+        ]
+        self._rpt_populate_cashier_list(self._rpt_all_cashiers)
+
+    def _rpt_populate_cashier_list(self, cashiers):
+        tbl = self.rpt_cashier_list
+        tbl.setRowCount(len(cashiers))
+        for row, c in enumerate(cashiers):
+            has_open = bool(c.get("has_open"))
+            display_name = ("● " if has_open else "") + c["cashier_name"]
+            name_item = QTableWidgetItem(display_name)
+            name_item.setData(Qt.ItemDataRole.UserRole, c["cashier_id"])
+            name_item.setForeground(QColor("#3dd68c" if has_open else "#c9d1d9"))
+            total_item = QTableWidgetItem(f"${c['total_sales']:,.2f}")
+            total_item.setForeground(QColor("#3dd68c"))
+            total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            tbl.setItem(row, 0, name_item)
+            tbl.setItem(row, 1, total_item)
+        tbl.resizeRowsToContents()
+
+    def _rpt_filter_cashiers(self, text):
+        q = text.lower()
+        filtered = [c for c in self._rpt_all_cashiers
+                    if q in c["cashier_name"].lower()]
+        self._rpt_populate_cashier_list(filtered)
+
+    def _rpt_on_cashier_selected(self):
+        sel = self.rpt_cashier_list.selectedItems()
+        if not sel:
+            return
+        row = self.rpt_cashier_list.currentRow()
+        item = self.rpt_cashier_list.item(row, 0)
+        cashier_id = item.data(Qt.ItemDataRole.UserRole)
+        # Strip the leading bullet if present
+        cashier_name = item.text().lstrip("● ").strip()
+        self._rpt_selected_cashier_id = cashier_id
+        self._rpt_selected_session_id = None
+        self.rpt_session_header.setText(f"Sessions  —  {cashier_name}")
+        self._rpt_load_sessions(cashier_id)
+        self._rpt_update_cards()
+
+    def _rpt_load_sessions(self, cashier_id):
+        try:
+            conn = get_transactions_conn()
+            rows = conn.execute("""
+                SELECT id, status, opened_at, closed_at, total_sales,
+                       total_gct, total_discount, transaction_count
+                FROM cashing_sessions
+                WHERE opened_by_id = ?
+                ORDER BY id DESC
+            """, (cashier_id,)).fetchall()
+            conn.close()
+        except Exception:
+            rows = []
+
+        self._rpt_all_sessions = [
+            {"id": r[0], "status": r[1], "opened_at": r[2],
+             "closed_at": r[3], "total_sales": r[4] or 0.0,
+             "total_gct": r[5] or 0.0, "total_discount": r[6] or 0.0,
+             "transaction_count": r[7] or 0}
+            for r in rows
+        ]
+        self._rpt_populate_session_list(self._rpt_all_sessions)
+        self._rpt_update_cards()
+
+    def _rpt_populate_session_list(self, sessions):
+        tbl = self.rpt_session_list
+        tbl.setRowCount(len(sessions))
+        for row, s in enumerate(sessions):
+            num_item = QTableWidgetItem(f"Session #{s['id']}")
+            num_item.setData(Qt.ItemDataRole.UserRole, s["id"])
+            num_item.setForeground(QColor("#ffffff"))
+            num_item.setFont(num_item.font())
+
+            is_open = s["status"] == "open"
+            status_item = QTableWidgetItem("  Open  " if is_open else "  Closed  ")
+            status_item.setForeground(QColor("#3dd68c" if is_open else "#8b949e"))
+            status_item.setBackground(QColor("#14532d" if is_open else "#21262d"))
+            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            opened = self._fmt_dt(s["opened_at"])
+            closed = self._fmt_dt(s["closed_at"]) if s["closed_at"] else "—"
+            opened_item = QTableWidgetItem(opened)
+            closed_item = QTableWidgetItem(closed)
+            opened_item.setForeground(QColor("#8b949e"))
+            closed_item.setForeground(QColor("#8b949e"))
+
+            sales_item = QTableWidgetItem(f"$ {s['total_sales']:,.2f}")
+            sales_item.setForeground(QColor("#3dd68c"))
+            sales_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+            tbl.setItem(row, 0, num_item)
+            tbl.setItem(row, 1, status_item)
+            tbl.setItem(row, 2, opened_item)
+            tbl.setItem(row, 3, closed_item)
+            tbl.setItem(row, 4, sales_item)
+        tbl.resizeRowsToContents()
+
+    def _rpt_filter_sessions(self, text):
+        q = text.lower()
+        filtered = [s for s in self._rpt_all_sessions
+                    if q in str(s["id"]) or
+                       q in (s["opened_at"] or "").lower() or
+                       q in (s["closed_at"] or "").lower()]
+        self._rpt_populate_session_list(filtered)
+
+    def _rpt_on_session_selected(self):
+        row = self.rpt_session_list.currentRow()
+        item = self.rpt_session_list.item(row, 0)
+        if not item:
+            return
+        session_id = item.data(Qt.ItemDataRole.UserRole)
+        self._rpt_selected_session_id = session_id
+        # Find session data
+        sess = next((s for s in self._rpt_all_sessions if s["id"] == session_id), None)
+        if sess:
+            self.rpt_cards["total_sales"].setText(f"${sess['total_sales']:,.2f}")
+            self.rpt_cards["total_gct"].setText(f"${sess['total_gct']:,.2f}")
+            self.rpt_cards["transactions"].setText(str(sess["transaction_count"]))
+            self.rpt_cards["discounts"].setText(f"${sess['total_discount']:,.2f}")
+            is_open = sess["status"] == "open"
+            self.rpt_close_btn.setEnabled(is_open)
+            self.rpt_print_btn.setEnabled(True)
+
+    def _rpt_update_cards(self):
+        """Show cashier totals across all sessions when no single session selected."""
+        if self._rpt_all_sessions:
+            total_s = sum(s["total_sales"] for s in self._rpt_all_sessions)
+            total_g = sum(s["total_gct"] for s in self._rpt_all_sessions)
+            total_t = sum(s["transaction_count"] for s in self._rpt_all_sessions)
+            total_d = sum(s["total_discount"] for s in self._rpt_all_sessions)
+            self.rpt_cards["total_sales"].setText(f"${total_s:,.2f}")
+            self.rpt_cards["total_gct"].setText(f"${total_g:,.2f}")
+            self.rpt_cards["transactions"].setText(str(total_t))
+            self.rpt_cards["discounts"].setText(f"${total_d:,.2f}")
+        else:
+            for k in self.rpt_cards:
+                self.rpt_cards[k].setText("—")
+        self.rpt_close_btn.setEnabled(False)
+        self.rpt_print_btn.setEnabled(False)
+
+    # ── Reports: actions ─────────────────────────────────────────────
+
+    def _rpt_refresh(self):
+        """Reload cashier list; if a cashier is selected reload their sessions too."""
+        self._rpt_load_cashiers()
+        if self._rpt_selected_cashier_id is not None:
+            self._rpt_load_sessions(self._rpt_selected_cashier_id)
+
+    def _rpt_open_session(self):
+        reply = QMessageBox.question(
+            self, "Open New Session",
+            "Open a new cashing session now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            conn = get_transactions_conn()
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            conn.execute("""
+                INSERT INTO cashing_sessions
+                    (opened_by_id, opened_by_name, opened_at, status)
+                VALUES (?, ?, ?, 'open')
+            """, (self.user_id, self.full_name, now))
+            conn.commit()
+            conn.close()
+            QMessageBox.information(self, "Session Opened", "New cashing session opened.")
+            self._rpt_load_cashiers()
+            if self._rpt_selected_cashier_id is not None:
+                self._rpt_load_sessions(self._rpt_selected_cashier_id)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+    def _rpt_close_session(self):
+        if self._rpt_selected_session_id is None:
+            return
+        reply = QMessageBox.question(
+            self, "Close Session",
+            f"Close Session #{self._rpt_selected_session_id}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            conn = get_transactions_conn()
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            conn.execute("""
+                UPDATE cashing_sessions
+                SET status='closed', closed_at=?, closed_by_id=?, closed_by_name=?
+                WHERE id=? AND status='open'
+            """, (now, self.user_id, self.full_name, self._rpt_selected_session_id))
+            conn.commit()
+            conn.close()
+            QMessageBox.information(self, "Session Closed", "Cashing session closed.")
+            self._rpt_load_cashiers()
+            if self._rpt_selected_cashier_id is not None:
+                self._rpt_load_sessions(self._rpt_selected_cashier_id)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+    def _fmt_dt(self, dt_str):
+        """Format a datetime string nicely."""
+        if not dt_str:
+            return "—"
+        try:
+            dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+            return dt.strftime("%b %d, %Y  %I:%M %p")
+        except Exception:
+            return dt_str
+
+    # ================================================================
+    # TRANSACTIONS TAB
+    # ================================================================
+
+    def _build_transactions_tab(self):
+        w = QWidget()
+        w.setStyleSheet("background-color: #161b22;")
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        # ── Search bar row ───────────────────────────────────────────
+        search_row = QHBoxLayout()
+
+        self.tx_search = QLineEdit()
+        self.tx_search.setPlaceholderText("🔍  Search by receipt #, cashier, date (YYYY-MM-DD)…")
+        self.tx_search.setFixedHeight(36)
+        self.tx_search.setStyleSheet("""
+            QLineEdit {
+                background-color: #0d1117; color: #ffffff;
+                border: 1.5px solid #30363d; border-radius: 18px;
+                padding: 0 16px; font-size: 13px;
+            }
+            QLineEdit:focus { border-color: #1a56db; }
+        """)
+        self.tx_search.returnPressed.connect(self._tx_search)
+
+        self.tx_status_filter = QComboBox()
+        self.tx_status_filter.addItems(["All Statuses", "Completed", "Voided", "Refunded"])
+        self.tx_status_filter.setFixedHeight(36)
+        self.tx_status_filter.setFixedWidth(150)
+        self.tx_status_filter.setStyleSheet("""
+            QComboBox {
+                background-color: #0d1117; color: #c9d1d9;
+                border: 1.5px solid #30363d; border-radius: 18px;
+                padding: 0 12px; font-size: 12px;
+            }
+            QComboBox::drop-down { border: none; }
+            QComboBox QAbstractItemView { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; }
+        """)
+        self.tx_status_filter.currentIndexChanged.connect(self._tx_search)
+
+        btn_search = QPushButton("Search")
+        btn_search.setFixedHeight(36)
+        btn_search.setFixedWidth(90)
+        btn_search.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_search.setStyleSheet("""
+            QPushButton {
+                background-color: #1a56db; color: #ffffff;
+                border: none; border-radius: 18px;
+                font-size: 13px; font-weight: 600;
+            }
+            QPushButton:hover { background-color: #1e40af; }
+        """)
+        btn_search.clicked.connect(self._tx_search)
+
+        _tx_btn_outline = """
+            QPushButton {
+                background: transparent; color: #c9d1d9;
+                border: 1.5px solid #30363d; border-radius: 18px;
+                font-size: 12px; font-weight: 600; padding: 0 14px;
+            }
+            QPushButton:hover  { background: #21262d; color: #ffffff; }
+            QPushButton:pressed{ background: #30363d; }
+            QPushButton:disabled{ color: #3d444d; border-color: #21262d; }
+        """
+
+        self.tx_refresh_btn = QPushButton("↻  Refresh")
+        self.tx_refresh_btn.setFixedHeight(36)
+        self.tx_refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.tx_refresh_btn.setStyleSheet(_tx_btn_outline)
+        self.tx_refresh_btn.clicked.connect(self._tx_search)
+
+        self.tx_reprint_btn = QPushButton("🖨  Reprint")
+        self.tx_reprint_btn.setFixedHeight(36)
+        self.tx_reprint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.tx_reprint_btn.setStyleSheet(_tx_btn_outline)
+        self.tx_reprint_btn.setEnabled(False)
+        self.tx_reprint_btn.clicked.connect(self._tx_reprint)
+
+        search_row.addWidget(self.tx_search, stretch=1)
+        search_row.addWidget(self.tx_status_filter)
+        search_row.addWidget(btn_search)
+        search_row.addWidget(self.tx_refresh_btn)
+        search_row.addWidget(self.tx_reprint_btn)
+        layout.addLayout(search_row)
+
+        # ── Split: transaction list | detail panel ───────────────────
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setStyleSheet("QSplitter::handle { background: #30363d; width: 1px; }")
+
+        # Left: transaction table
+        left = QFrame()
+        left.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        ll = QVBoxLayout(left)
+        ll.setContentsMargins(0, 0, 0, 0)
+
+        self.tx_table = QTableWidget()
+        self.tx_table.setColumnCount(6)
+        self.tx_table.setHorizontalHeaderLabels(["Receipt #", "Cashier", "Date", "Time", "Total", "Status"])
+        self.tx_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.tx_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.tx_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.tx_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.tx_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.tx_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self.tx_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tx_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tx_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tx_table.verticalHeader().setVisible(False)
+        self.tx_table.setShowGrid(False)
+        self.tx_table.setStyleSheet("""
+            QTableWidget { background: transparent; color: #c9d1d9; border: none; font-size: 12px; }
+            QTableWidget::item { padding: 8px; border-bottom: 1px solid #21262d; }
+            QTableWidget::item:selected { background-color: #1a56db22; color: #ffffff; }
+            QHeaderView::section { background: #0d1117; color: #8b949e; border: none; padding: 8px;
+                                   font-size: 11px; font-weight: 700; border-bottom: 1px solid #21262d; }
+        """)
+        self.tx_table.selectionModel().selectionChanged.connect(self._tx_on_row_selected)
+        ll.addWidget(self.tx_table)
+
+        # Right: detail panel
+        right = QFrame()
+        right.setFixedWidth(320)
+        right.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        rl = QVBoxLayout(right)
+        rl.setContentsMargins(14, 14, 14, 14)
+        rl.setSpacing(8)
+
+        self.tx_detail_title = QLabel("Select a transaction")
+        self.tx_detail_title.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: 700;")
+        self.tx_detail_meta = QLabel("")
+        self.tx_detail_meta.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self.tx_detail_meta.setWordWrap(True)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #30363d;")
+
+        self.tx_items_table = QTableWidget()
+        self.tx_items_table.setColumnCount(4)
+        self.tx_items_table.setHorizontalHeaderLabels(["Item", "Qty", "Price", "Total"])
+        self.tx_items_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tx_items_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.tx_items_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.tx_items_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.tx_items_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tx_items_table.verticalHeader().setVisible(False)
+        self.tx_items_table.setShowGrid(False)
+        self.tx_items_table.setStyleSheet("""
+            QTableWidget { background: transparent; color: #c9d1d9; border: none; font-size: 11px; }
+            QTableWidget::item { padding: 5px 4px; border-bottom: 1px solid #21262d; }
+            QHeaderView::section { background: #0d1117; color: #8b949e; border: none; padding: 5px;
+                                   font-size: 10px; font-weight: 700; border-bottom: 1px solid #21262d; }
+        """)
+
+        # Totals footer
+        self.tx_footer = QLabel("")
+        self.tx_footer.setStyleSheet("color: #c9d1d9; font-size: 12px;")
+        self.tx_footer.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.tx_footer.setWordWrap(True)
+
+        rl.addWidget(self.tx_detail_title)
+        rl.addWidget(self.tx_detail_meta)
+        rl.addWidget(sep)
+        rl.addWidget(self.tx_items_table, stretch=1)
+        rl.addWidget(self.tx_footer)
+
+        splitter.addWidget(left)
+        splitter.addWidget(right)
+        splitter.setStretchFactor(0, 1)
+        layout.addWidget(splitter, stretch=1)
+
+        # Load recent transactions on open
+        self._tx_load(limit=100)
+        return w
+
+    # ── Transactions: data & actions ─────────────────────────────────
+
+    def _tx_load(self, query="", status_filter="", limit=100):
+        try:
+            conn = get_transactions_conn()
+            sql = """
+                SELECT id, cashier_name, date, time, total, status
+                FROM transactions
+                WHERE 1=1
+            """
+            params = []
+            if query:
+                sql += " AND (CAST(id AS TEXT) LIKE ? OR LOWER(cashier_name) LIKE ? OR date LIKE ?)"
+                q = f"%{query.lower()}%"
+                params += [q, q, q]
+            if status_filter and status_filter != "all":
+                sql += " AND status = ?"
+                params.append(status_filter)
+            sql += " ORDER BY id DESC LIMIT ?"
+            params.append(limit)
+            rows = conn.execute(sql, params).fetchall()
+            conn.close()
+        except Exception:
+            rows = []
+
+        tbl = self.tx_table
+        tbl.setRowCount(len(rows))
+        status_colors = {"completed": "#3dd68c", "voided": "#f87171", "refunded": "#f59e0b"}
+        for row, r in enumerate(rows):
+            id_item = QTableWidgetItem(f"#{r[0]}")
+            id_item.setData(Qt.ItemDataRole.UserRole, r[0])
+            id_item.setForeground(QColor("#ffffff"))
+            cashier_item = QTableWidgetItem(r[1])
+            date_item = QTableWidgetItem(r[2])
+            time_item = QTableWidgetItem(r[3])
+            total_item = QTableWidgetItem(f"${r[4]:,.2f}")
+            total_item.setForeground(QColor("#3dd68c"))
+            total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            status_text = r[5].capitalize()
+            status_item = QTableWidgetItem(f"  {status_text}  ")
+            status_item.setForeground(QColor(status_colors.get(r[5], "#8b949e")))
+            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            for col, item in enumerate([id_item, cashier_item, date_item, time_item, total_item, status_item]):
+                tbl.setItem(row, col, item)
+        tbl.resizeRowsToContents()
+
+    def _tx_search(self):
+        query = self.tx_search.text().strip()
+        status_map = {"All Statuses": "", "Completed": "completed",
+                      "Voided": "voided", "Refunded": "refunded"}
+        status = status_map.get(self.tx_status_filter.currentText(), "")
+        self._tx_load(query=query, status_filter=status)
+
+    def _tx_on_row_selected(self):
+        row = self.tx_table.currentRow()
+        item = self.tx_table.item(row, 0)
+        if not item:
+            return
+        tx_id = item.data(Qt.ItemDataRole.UserRole)
+        try:
+            conn = get_transactions_conn()
+            tx = conn.execute(
+                "SELECT id, cashier_name, date, time, subtotal, tax_amount, total, status FROM transactions WHERE id=?",
+                (tx_id,)
+            ).fetchone()
+            items = conn.execute(
+                "SELECT product_name_snapshot, quantity, unit_price_snapshot, discount_applied, line_total FROM transaction_items WHERE transaction_id=?",
+                (tx_id,)
+            ).fetchall()
+            conn.close()
+        except Exception:
+            return
+        if not tx:
+            return
+
+        self.tx_detail_title.setText(f"Receipt #{tx[0]}")
+        self.tx_detail_meta.setText(
+            f"Cashier: {tx[1]}\n"
+            f"Date: {tx[2]}  {tx[3]}\n"
+            f"Status: {tx[7].capitalize()}"
+        )
+
+        self.tx_items_table.setRowCount(len(items))
+        for r, it in enumerate(items):
+            name_item = QTableWidgetItem(it[0])
+            qty_item  = QTableWidgetItem(str(it[1]))
+            qty_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            price_item = QTableWidgetItem(f"${it[2]:,.2f}")
+            price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            total_item = QTableWidgetItem(f"${it[4]:,.2f}")
+            total_item.setForeground(QColor("#3dd68c"))
+            total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            for col, ci in enumerate([name_item, qty_item, price_item, total_item]):
+                self.tx_items_table.setItem(r, col, ci)
+        self.tx_items_table.resizeRowsToContents()
+
+        self.tx_footer.setText(
+            f"Subtotal:  ${tx[4]:,.2f}\n"
+            f"GCT:        ${tx[5]:,.2f}\n"
+            f"<b>Total:      ${tx[6]:,.2f}</b>"
+        )
+        self.tx_footer.setTextFormat(Qt.TextFormat.RichText)
+        self.tx_reprint_btn.setEnabled(True)
+
+    def _tx_reprint(self):
+        """Reprint the selected receipt. Wired to printer when receipt printing is implemented."""
+        row = self.tx_table.currentRow()
+        item = self.tx_table.item(row, 0)
+        if not item:
+            return
+        tx_id = item.data(Qt.ItemDataRole.UserRole)
+        QMessageBox.information(
+            self, "Reprint Receipt",
+            f"Reprint for Receipt #{tx_id} will be sent to the printer.\n"
+            "(Receipt printing not yet implemented — wire to printer module here.)"
+        )
+
+    # ================================================================
+    # VOID / REFUND TAB — stub
+    # ================================================================
 
     # ── Void / Refund tab — stub ─────────────────────────────────────
     def _build_void_tab(self):
