@@ -256,14 +256,7 @@ class CashierDashboard(BaseWindow):
         clear_btn.setStyleSheet(self._action_btn_style())
         clear_btn.clicked.connect(self._clear_cart)
 
-        void_btn = QPushButton("⊘  Void")
-        void_btn.setFixedHeight(40)
-        void_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        void_btn.setStyleSheet(self._action_btn_style())
-        void_btn.clicked.connect(self._void_transaction)
-
         btn_row.addWidget(clear_btn)
-        btn_row.addWidget(void_btn)
         btn_row.addStretch()
 
         layout.addLayout(header)

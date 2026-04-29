@@ -1,7 +1,7 @@
 """
 ui/supervisor_dashboard.py
 Supervisor dashboard with tabbed interface.
-Tabs: Checkout | Products | Reports | Transactions | Void / Refund
+Tabs: Products | Reports | Transactions | Void / Refund
 """
 
 from datetime import datetime
@@ -116,24 +116,12 @@ class SupervisorDashboard(BaseWindow):
             QTabBar::tab:hover { background-color: #30363d; color: #ffffff; }
         """)
 
-        self.tabs.addTab(self._build_checkout_tab(),      "Checkout")
         self.tabs.addTab(self._build_products_tab(),      "Products")
         self.tabs.addTab(self._build_reports_tab(),       "Reports")
         self.tabs.addTab(self._build_transactions_tab(),  "Transactions")
         self.tabs.addTab(self._build_void_tab(),          "Void / Refund")
-        self.tabs.setCurrentIndex(1)
+        self.tabs.setCurrentIndex(0)
         return self.tabs
-
-    # ── Checkout tab — stub ──────────────────────────────────────────
-    def _build_checkout_tab(self):
-        w = QWidget()
-        w.setStyleSheet("background-color: #161b22;")
-        l = QVBoxLayout(w)
-        lbl = QLabel("Checkout — coming soon")
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setStyleSheet("color: #8b949e; font-size: 16px;")
-        l.addWidget(lbl)
-        return w
 
     # ── Reports tab — stub ───────────────────────────────────────────
     # ================================================================
@@ -350,10 +338,18 @@ class SupervisorDashboard(BaseWindow):
     # ── Reports: data loaders ────────────────────────────────────────
 
     def _rpt_load_cashiers(self):
-        """Load distinct cashiers from cashing_sessions + running totals."""
+        """Load distinct cashiers (role=cashier) who have sessions."""
         try:
-            conn = get_transactions_conn()
-            rows = conn.execute("""
+            conn_t = get_transactions_conn()
+            conn_u = get_users_conn()
+            # Get all cashier-role user IDs first
+            cashier_ids = {
+                r[0] for r in conn_u.execute(
+                    "SELECT id FROM users WHERE role='cashier'"
+                ).fetchall()
+            }
+            conn_u.close()
+            rows = conn_t.execute("""
                 SELECT opened_by_id, opened_by_name,
                        SUM(total_sales) AS total_sales,
                        MAX(CASE WHEN status='open' THEN 1 ELSE 0 END) AS has_open
@@ -361,14 +357,16 @@ class SupervisorDashboard(BaseWindow):
                 GROUP BY opened_by_id, opened_by_name
                 ORDER BY opened_by_name
             """).fetchall()
-            conn.close()
+            conn_t.close()
         except Exception:
             rows = []
+            cashier_ids = set()
 
         self._rpt_all_cashiers = [
             {"cashier_id": r[0], "cashier_name": r[1],
              "total_sales": r[2] or 0.0, "has_open": r[3]}
             for r in rows
+            if r[0] in cashier_ids
         ]
         self._rpt_populate_cashier_list(self._rpt_all_cashiers)
 
