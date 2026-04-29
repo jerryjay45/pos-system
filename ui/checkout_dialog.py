@@ -349,12 +349,26 @@ class CheckoutDialog(QDialog):
                     round(item["price"] * item["qty"], 2)
                 ))
 
-            # Update session total
+            # Update cashier session total
             cursor.execute("""
                 UPDATE sessions
                 SET total_sales = total_sales + ?
                 WHERE id = ?
             """, (self.total, session_id))
+
+            # Update active cashing_session totals (supervisor trading period)
+            discount_total = sum(item.get("discount_applied", 0.0) * item["qty"]
+                                 for item in self.cart)
+            cursor.execute("""
+                UPDATE cashing_sessions
+                SET total_sales       = total_sales       + ?,
+                    total_gct         = total_gct         + ?,
+                    total_discount    = total_discount    + ?,
+                    transaction_count = transaction_count + 1
+                WHERE status = 'open'
+                ORDER BY id DESC
+                LIMIT 1
+            """, (self.total, self.gct_total, discount_total))
 
             conn.commit()
             conn.close()

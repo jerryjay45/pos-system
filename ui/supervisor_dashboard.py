@@ -202,10 +202,9 @@ class SupervisorDashboard(BaseWindow):
         self.rpt_cashier_search.textChanged.connect(self._rpt_filter_cashiers)
 
         self.rpt_cashier_list = QTableWidget()
-        self.rpt_cashier_list.setColumnCount(2)
-        self.rpt_cashier_list.setHorizontalHeaderLabels(["Name", "Sales"])
+        self.rpt_cashier_list.setColumnCount(1)
+        self.rpt_cashier_list.setHorizontalHeaderLabels(["Name"])
         self.rpt_cashier_list.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.rpt_cashier_list.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.rpt_cashier_list.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.rpt_cashier_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.rpt_cashier_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -382,11 +381,7 @@ class SupervisorDashboard(BaseWindow):
             name_item = QTableWidgetItem(display_name)
             name_item.setData(Qt.ItemDataRole.UserRole, c["cashier_id"])
             name_item.setForeground(QColor("#3dd68c" if has_open else "#c9d1d9"))
-            total_item = QTableWidgetItem(f"${c['total_sales']:,.2f}")
-            total_item.setForeground(QColor("#3dd68c"))
-            total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             tbl.setItem(row, 0, name_item)
-            tbl.setItem(row, 1, total_item)
         tbl.resizeRowsToContents()
 
     def _rpt_filter_cashiers(self, text):
@@ -494,19 +489,9 @@ class SupervisorDashboard(BaseWindow):
             self.rpt_print_btn.setEnabled(True)
 
     def _rpt_update_cards(self):
-        """Show cashier totals across all sessions when no single session selected."""
-        if self._rpt_all_sessions:
-            total_s = sum(s["total_sales"] for s in self._rpt_all_sessions)
-            total_g = sum(s["total_gct"] for s in self._rpt_all_sessions)
-            total_t = sum(s["transaction_count"] for s in self._rpt_all_sessions)
-            total_d = sum(s["total_discount"] for s in self._rpt_all_sessions)
-            self.rpt_cards["total_sales"].setText(f"${total_s:,.2f}")
-            self.rpt_cards["total_gct"].setText(f"${total_g:,.2f}")
-            self.rpt_cards["transactions"].setText(str(total_t))
-            self.rpt_cards["discounts"].setText(f"${total_d:,.2f}")
-        else:
-            for k in self.rpt_cards:
-                self.rpt_cards[k].setText("—")
+        """Reset cards to dash — cards are only populated when a session row is selected."""
+        for k in self.rpt_cards:
+            self.rpt_cards[k].setText("—")
         self.rpt_close_btn.setEnabled(False)
         self.rpt_print_btn.setEnabled(False)
 
@@ -620,7 +605,7 @@ class SupervisorDashboard(BaseWindow):
             QComboBox::drop-down { border: none; }
             QComboBox QAbstractItemView { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; }
         """)
-        self.tx_status_filter.currentIndexChanged.connect(self._tx_search)
+        self.tx_status_filter.currentIndexChanged.connect(lambda: None)  # no auto-search; use Search button
 
         btn_search = QPushButton("Search")
         btn_search.setFixedHeight(36)
