@@ -144,8 +144,8 @@ class CheckoutDialog(QDialog):
                 background-color: #21262d;
                 color: #ffffff;
                 border: 1.5px solid #30363d;
-                border-radius: 23px;
-                font-size: 14px;
+                border-radius: 8px;
+                font-size: 13px;
                 font-weight: 600;
             }
             QPushButton:hover { background-color: #30363d; }
@@ -158,19 +158,15 @@ class CheckoutDialog(QDialog):
         self.confirm_btn.setEnabled(False)
         self.confirm_btn.setStyleSheet("""
             QPushButton {
-                background-color: #1a56db;
+                background-color: #238636;
                 color: #ffffff;
                 border: none;
-                border-radius: 23px;
-                font-size: 14px;
-                font-weight: 700;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 600;
             }
-            QPushButton:hover    { background-color: #1145b0; }
-            QPushButton:pressed  { background-color: #0e3a8c; }
-            QPushButton:disabled {
-                background-color: #21262d;
-                color: #484f58;
-            }
+            QPushButton:hover:enabled { background-color: #2ea043; }
+            QPushButton:disabled { background-color: #21262d; color: #6e7681; }
         """)
         self.confirm_btn.clicked.connect(self._confirm_payment)
 
@@ -217,12 +213,10 @@ class CheckoutDialog(QDialog):
         return row
 
     def _divider(self):
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet(
-            "background-color: #30363d; max-height: 1px; border: none;"
-        )
-        return line
+        divider = QFrame()
+        divider.setStyleSheet("background-color: #30363d;")
+        divider.setFixedHeight(1)
+        return divider
 
     # ----------------------------------------------------------------
     # LOGIC
@@ -357,17 +351,21 @@ class CheckoutDialog(QDialog):
             """, (self.total, session_id))
 
             # Update active cashing_session totals (supervisor trading period)
+            # Use a subquery to find and update the latest open cashing session
             discount_total = sum(item.get("discount_applied", 0.0) * item["qty"]
                                  for item in self.cart)
             cursor.execute("""
                 UPDATE cashing_sessions
-                SET total_sales       = total_sales       + ?,
-                    total_gct         = total_gct         + ?,
-                    total_discount    = total_discount    + ?,
+                SET total_sales = total_sales + ?,
+                    total_gct = total_gct + ?,
+                    total_discount = total_discount + ?,
                     transaction_count = transaction_count + 1
-                WHERE status = 'open'
-                ORDER BY id DESC
-                LIMIT 1
+                WHERE id = (
+                    SELECT id FROM cashing_sessions
+                    WHERE status = 'open'
+                    ORDER BY id DESC
+                    LIMIT 1
+                )
             """, (self.total, self.gct_total, discount_total))
 
             conn.commit()
