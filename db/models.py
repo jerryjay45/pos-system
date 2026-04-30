@@ -197,14 +197,16 @@ def create_transactions_tables():
         )
     """)
 
-    # Cashing sessions — supervisor-defined trading periods
+    # Cashing sessions — one per cashier per trading period, opened by supervisor
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cashing_sessions (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
-            opened_by_id      INTEGER NOT NULL,
-            opened_by_name    TEXT    NOT NULL,  -- snapshot
+            cashier_id        INTEGER,            -- the cashier this session belongs to
+            cashier_name      TEXT,               -- snapshot
+            opened_by_id      INTEGER NOT NULL,   -- supervisor who opened it
+            opened_by_name    TEXT    NOT NULL,   -- snapshot
             closed_by_id      INTEGER,
-            closed_by_name    TEXT,              -- snapshot
+            closed_by_name    TEXT,               -- snapshot
             opened_at         TEXT    NOT NULL,
             closed_at         TEXT,
             total_sales       REAL    NOT NULL DEFAULT 0.0,
@@ -215,6 +217,19 @@ def create_transactions_tables():
                               CHECK(status IN ('open','closed'))
         )
     """)
+
+    # ── Migration: add cashier_id / cashier_name if upgrading from old schema ──
+    existing_cols = {r[1] for r in cursor.execute(
+        "PRAGMA table_info(cashing_sessions)"
+    ).fetchall()}
+    if "cashier_id" not in existing_cols:
+        cursor.execute(
+            "ALTER TABLE cashing_sessions ADD COLUMN cashier_id INTEGER"
+        )
+    if "cashier_name" not in existing_cols:
+        cursor.execute(
+            "ALTER TABLE cashing_sessions ADD COLUMN cashier_name TEXT"
+        )
 
     # Transactions — one per checkout
     cursor.execute("""

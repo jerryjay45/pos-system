@@ -350,23 +350,17 @@ class CheckoutDialog(QDialog):
                 WHERE id = ?
             """, (self.total, session_id))
 
-            # Update active cashing_session totals (supervisor trading period)
-            # Use a subquery to find and update the latest open cashing session
+            # Update this cashier's active cashing_session totals
             discount_total = sum(item.get("discount_applied", 0.0) * item["qty"]
                                  for item in self.cart)
             cursor.execute("""
                 UPDATE cashing_sessions
-                SET total_sales = total_sales + ?,
-                    total_gct = total_gct + ?,
-                    total_discount = total_discount + ?,
+                SET total_sales       = total_sales       + ?,
+                    total_gct         = total_gct         + ?,
+                    total_discount    = total_discount    + ?,
                     transaction_count = transaction_count + 1
-                WHERE id = (
-                    SELECT id FROM cashing_sessions
-                    WHERE status = 'open'
-                    ORDER BY id DESC
-                    LIMIT 1
-                )
-            """, (self.total, self.gct_total, discount_total))
+                WHERE cashier_id = ? AND status = 'open'
+            """, (self.total, self.gct_total, discount_total, self.user_id))
 
             conn.commit()
             conn.close()

@@ -104,15 +104,6 @@ class LoginWindow(QMainWindow):
         self.password_input.setStyleSheet(self._input_style())
 
         # ── Error message label (hidden by default) ──────────────────
-        self.error_label = QLabel("")
-        self.error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.error_label.setStyleSheet("""
-            color: #e94560;
-            font-size: 12px;
-            border: none;
-            min-height: 18px;
-        """)
-        self.error_label.setVisible(False)
 
         # ── Login button ─────────────────────────────────────────────
         self.login_btn = QPushButton("Sign In")
@@ -140,7 +131,6 @@ class LoginWindow(QMainWindow):
         card_layout.addWidget(self.username_input)
         card_layout.addWidget(password_label)
         card_layout.addWidget(self.password_input)
-        card_layout.addWidget(self.error_label)
         card_layout.addWidget(self.login_btn)
         card_layout.addWidget(version_label)
 
@@ -157,14 +147,16 @@ class LoginWindow(QMainWindow):
 
         # Basic validation — check fields are not empty
         if not username or not password:
-            self._show_error("Please enter your username and password.")
+            QMessageBox.warning(self, "Missing Fields",
+                                "Please enter your username and password.")
             return
 
         # Attempt to authenticate against the database
         user = self._authenticate(username, password)
 
         if user is None:
-            self._show_error("Invalid username or password.")
+            QMessageBox.warning(self, "Login Failed",
+                                "Invalid username or password.")
             self.password_input.clear()
             self.password_input.setFocus()
             return
@@ -200,13 +192,38 @@ class LoginWindow(QMainWindow):
         """
         Open the correct dashboard based on the user's role.
         user = (id, username, full_name, role)
+
+        Cashiers are blocked from logging in unless a supervisor has opened
+        a cashing session specifically for their account.
         """
         user_id, username, full_name, role = user
 
-        # Close the login window
+        # ── Gate: cashiers need an open cashing session ──────────────
+        if role == "cashier":
+            try:
+                from db import get_transactions_conn
+                conn = get_transactions_conn()
+                row = conn.execute(
+                    "SELECT id FROM cashing_sessions "
+                    "WHERE cashier_id = ? AND status = 'open' LIMIT 1",
+                    (user_id,)
+                ).fetchone()
+                conn.close()
+            except Exception:
+                row = None   # DB unreachable — fail safe (block login)
+
+            if row is None:
+                QMessageBox.warning(
+                    self,
+                    "No Session Open",
+                    "Your account has no open session.\n"
+                    "Please ask your supervisor to open one."
+                )
+                return
+
+        # ── All clear — close login and open dashboard ────────────────
         self.close()
 
-        # Open the appropriate dashboard
         if role == "cashier":
             from ui.cashier_dashboard import CashierDashboard
             self.dashboard = CashierDashboard(user_id, full_name)
@@ -222,11 +239,6 @@ class LoginWindow(QMainWindow):
     # ----------------------------------------------------------------
     # HELPERS
     # ----------------------------------------------------------------
-
-    def _show_error(self, message):
-        """Show an error message below the password field."""
-        self.error_label.setText(message)
-        self.error_label.setVisible(True)
 
     def _center_on_screen(self):
         """Centre the window on the screen."""

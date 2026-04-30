@@ -282,6 +282,7 @@ class SupervisorDashboard(BaseWindow):
         self.rpt_open_btn.setFixedHeight(34)
         self.rpt_open_btn.setStyleSheet(_btn_green)
         self.rpt_open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rpt_open_btn.setEnabled(False)          # enabled once a cashier is selected
         self.rpt_open_btn.clicked.connect(self._rpt_open_session)
 
         self.rpt_print_btn = QPushButton("Print Summary")
@@ -329,7 +330,8 @@ class SupervisorDashboard(BaseWindow):
 
         self._rpt_all_cashiers        = []
         self._rpt_all_sessions        = []
-        self._rpt_selected_cashier_id = None
+        self._rpt_selected_cashier_id   = None
+        self._rpt_selected_cashier_name = None
         self._rpt_selected_session_id = None
 
         self._rpt_load_cashiers()
@@ -338,36 +340,74 @@ class SupervisorDashboard(BaseWindow):
     # ── Reports: data loaders ────────────────────────────────────────
 
     def _rpt_load_cashiers(self):
-        """Load distinct cashiers (role=cashier) who have sessions."""
+        """Load all cashiers for the left panel.
+
+        Sources (merged by cashier_id, deduplicated):
+          1. Active cashiers from users.db (role='cashier')
+          2. Historical cashiers recorded in the sessions table
+             (covers deleted / role-changed users who still have history)
+
+        The 'has_open' flag lights up (green dot) when the cashier has an
+        open CASHING session — meaning they are cleared to operate the till.
+        """
+        cashiers: dict = {}
+
+        # ── Source 1: active cashiers from users.db ──────────────────
+        try:
+            conn_u = get_users_conn()
+            for r in conn_u.execute(
+                "SELECT id, full_name FROM users "
+                "WHERE role='cashier' AND is_active=1 ORDER BY full_name"
+            ).fetchall():
+                cashiers[r[0]] = {
+                    "cashier_id":   r[0],
+                    "cashier_name": r[1],
+                    "total_sales":  0.0,
+                    "has_open":     0,
+                }
+            conn_u.close()
+        except Exception:
+            pass
+
+        # ── Source 2: historical cashiers from sessions table ─────────
         try:
             conn_t = get_transactions_conn()
-            conn_u = get_users_conn()
-            # Get all cashier-role user IDs first
-            cashier_ids = {
-                r[0] for r in conn_u.execute(
-                    "SELECT id FROM users WHERE role='cashier'"
-                ).fetchall()
-            }
-            conn_u.close()
-            rows = conn_t.execute("""
-                SELECT opened_by_id, opened_by_name,
-                       SUM(total_sales) AS total_sales,
-                       MAX(CASE WHEN status='open' THEN 1 ELSE 0 END) AS has_open
-                FROM cashing_sessions
-                GROUP BY opened_by_id, opened_by_name
-                ORDER BY opened_by_name
-            """).fetchall()
+            for r in conn_t.execute("""
+                SELECT cashier_id, cashier_name, SUM(total_sales)
+                FROM sessions
+                GROUP BY cashier_id, cashier_name
+                ORDER BY cashier_name
+            """).fetchall():
+                if r[0] not in cashiers:
+                    cashiers[r[0]] = {
+                        "cashier_id":   r[0],
+                        "cashier_name": r[1],
+                        "total_sales":  r[2] or 0.0,
+                        "has_open":     0,
+                    }
             conn_t.close()
         except Exception:
-            rows = []
-            cashier_ids = set()
+            pass
 
-        self._rpt_all_cashiers = [
-            {"cashier_id": r[0], "cashier_name": r[1],
-             "total_sales": r[2] or 0.0, "has_open": r[3]}
-            for r in rows
-            if r[0] in cashier_ids
-        ]
+        # ── Source 3: which cashiers have an open cashing session ─────
+        open_cashing: set = set()
+        try:
+            conn_t2 = get_transactions_conn()
+            for r in conn_t2.execute(
+                "SELECT cashier_id FROM cashing_sessions "
+                "WHERE status='open' AND cashier_id IS NOT NULL"
+            ).fetchall():
+                open_cashing.add(r[0])
+            conn_t2.close()
+        except Exception:
+            pass
+
+        for c in cashiers.values():
+            c["has_open"] = 1 if c["cashier_id"] in open_cashing else 0
+
+        self._rpt_all_cashiers = sorted(
+            cashiers.values(), key=lambda c: c["cashier_name"]
+        )
         self._rpt_populate_cashier_list(self._rpt_all_cashiers)
 
     def _rpt_populate_cashier_list(self, cashiers):
@@ -398,19 +438,22 @@ class SupervisorDashboard(BaseWindow):
         # Strip the leading bullet if present
         cashier_name = item.text().lstrip("● ").strip()
         self._rpt_selected_cashier_id = cashier_id
+        self._rpt_selected_cashier_name = cashier_name
         self._rpt_selected_session_id = None
         self.rpt_session_header.setText(f"Sessions  —  {cashier_name}")
+        self.rpt_open_btn.setEnabled(True)
         self._rpt_load_sessions(cashier_id)
         self._rpt_update_cards()
 
     def _rpt_load_sessions(self, cashier_id):
+        """Load cashing sessions for the selected cashier."""
         try:
             conn = get_transactions_conn()
             rows = conn.execute("""
                 SELECT id, status, opened_at, closed_at, total_sales,
                        total_gct, total_discount, transaction_count
                 FROM cashing_sessions
-                WHERE opened_by_id = ?
+                WHERE cashier_id = ?
                 ORDER BY id DESC
             """, (cashier_id,)).fetchall()
             conn.close()
@@ -502,27 +545,64 @@ class SupervisorDashboard(BaseWindow):
             self._rpt_load_sessions(self._rpt_selected_cashier_id)
 
     def _rpt_open_session(self):
-        reply = QMessageBox.question(
-            self, "Open New Session",
-            "Open a new cashing session now?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+        # Must have a cashier selected
+        if self._rpt_selected_cashier_id is None:
+            QMessageBox.warning(self, "No Cashier Selected",
+                                "Select a cashier from the left panel first.")
             return
+
+        cashier_id   = self._rpt_selected_cashier_id
+        cashier_name = getattr(self, "_rpt_selected_cashier_name",
+                               str(cashier_id))
+
+        # Warn if they already have an open session
+        try:
+            conn_chk = get_transactions_conn()
+            existing = conn_chk.execute(
+                "SELECT id FROM cashing_sessions "
+                "WHERE cashier_id=? AND status='open' LIMIT 1",
+                (cashier_id,)
+            ).fetchone()
+            conn_chk.close()
+        except Exception:
+            existing = None
+
+        if existing:
+            reply = QMessageBox.question(
+                self, "Session Already Open",
+                f"{cashier_name} already has an open session (#{existing[0]}).\n"
+                "Open an additional session anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        else:
+            reply = QMessageBox.question(
+                self, "Open Session",
+                f"Open a new cashing session for {cashier_name}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
         try:
             conn = get_transactions_conn()
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             conn.execute("""
                 INSERT INTO cashing_sessions
-                    (opened_by_id, opened_by_name, opened_at, status)
-                VALUES (?, ?, ?, 'open')
-            """, (self.user_id, self.full_name, now))
+                    (cashier_id, cashier_name,
+                     opened_by_id, opened_by_name, opened_at, status)
+                VALUES (?, ?, ?, ?, ?, 'open')
+            """, (cashier_id, cashier_name,
+                  self.user_id, self.full_name, now))
             conn.commit()
             conn.close()
-            QMessageBox.information(self, "Session Opened", "New cashing session opened.")
+            QMessageBox.information(
+                self, "Session Opened",
+                f"New cashing session opened for {cashier_name}."
+            )
             self._rpt_load_cashiers()
-            if self._rpt_selected_cashier_id is not None:
-                self._rpt_load_sessions(self._rpt_selected_cashier_id)
+            self._rpt_load_sessions(cashier_id)
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
 
