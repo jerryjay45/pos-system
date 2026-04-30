@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QStringListModel
 from PyQt6.QtGui import QColor, QDoubleValidator, QIntValidator
 from ui.base_window import BaseWindow
-from db import get_products_conn, get_users_conn, get_transactions_conn, get_business_conn
+from db import get_products_conn, get_users_conn, get_transactions_conn, get_business_conn, recalculate_selling_prices
 
 
 class SupervisorDashboard(BaseWindow):
@@ -1649,8 +1649,25 @@ class SupervisorDashboard(BaseWindow):
         self.f_brand    = self._form_input("Brand",    "e.g. Coca Cola")
         self.f_name     = self._form_input("Name",     "e.g. Coca Cola 330ml")
         self.f_alias    = self._form_input("Alias",    "e.g. coca-cola")
-        self.f_price    = self._form_input("Price",    "0.00")
-        self.f_price.setValidator(QDoubleValidator(0, 999999, 2))
+        self.f_cost     = self._form_input("Cost",     "0.00")
+        self.f_cost.setValidator(QDoubleValidator(0, 999999, 2))
+
+        # Selling price — read-only, auto-computed from cost + group profit
+        self.f_selling_price = self._form_input("Selling Price", "")
+        self.f_selling_price.setReadOnly(True)
+        self.f_selling_price.setStyleSheet("""
+            QLineEdit {
+                background-color: #0d1a10; color: #3fb950;
+                border: 1px solid #1a3a20; border-radius: 6px;
+                padding: 0 10px; font-size: 13px;
+            }
+        """)
+        # Selling price hint label
+        self.selling_price_hint = QLabel("")
+        self.selling_price_hint.setStyleSheet("color: #484f58; font-size: 10px; font-style: italic;")
+
+        # Connect cost + group changes to selling price recalc
+        self.f_cost.textChanged.connect(self._calc_selling_price)
 
         # Setup alias autocomplete
         self._setup_alias_completer()
@@ -1668,6 +1685,7 @@ class SupervisorDashboard(BaseWindow):
         self.f_group.setEditable(True)
         self.f_group.setStyleSheet(self._combo_style())
         self._setup_group_completer()
+        self.f_group.currentTextChanged.connect(self._calc_selling_price)
 
         # Discount level dropdown
         disc_lbl = QLabel("Discount Level")
@@ -1770,7 +1788,9 @@ class SupervisorDashboard(BaseWindow):
         layout.addWidget(self._field_wrap("Name",           self.f_name))
         layout.addWidget(self._field_wrap("Alias",          self.f_alias))
         layout.addWidget(self.alias_hint)
-        layout.addWidget(self._field_wrap("Price (single)", self.f_price))
+        layout.addWidget(self._field_wrap("Cost",           self.f_cost))
+        layout.addWidget(self._field_wrap("Selling Price",  self.f_selling_price))
+        layout.addWidget(self.selling_price_hint)
         layout.addWidget(grp_lbl)
         layout.addWidget(self.f_group)
         layout.addWidget(disc_lbl)
@@ -1904,43 +1924,99 @@ class SupervisorDashboard(BaseWindow):
     def _on_case_toggled(self, state):
         is_case = state == Qt.CheckState.Checked.value
         self.case_box.setVisible(is_case)
-        # Price field disabled for cases — auto-calculated
-        self.f_price.setReadOnly(is_case)
-        self.f_price.setStyleSheet("""
+        # Cost and group are disabled for cases — case cost derives from single via alias
+        self.f_cost.setReadOnly(is_case)
+        self.f_cost.setStyleSheet("""
             QLineEdit {
                 background-color: %s; color: %s;
                 border: 1px solid #30363d; border-radius: 6px;
                 padding: 0 10px; font-size: 13px;
             }
         """ % (("#0d1117", "#484f58") if is_case else ("#161b22", "#ffffff")))
+        self.f_group.setEnabled(not is_case)
         if is_case:
+            self.f_selling_price.clear()
+            self.selling_price_hint.setText("Case price auto-calculated below")
             self._calc_case_price()
+        else:
+            self.selling_price_hint.setText("")
+            self._calc_selling_price()
 
     def _on_alias_changed(self):
         alias = self.f_alias.text().strip()
         if not alias:
             self.alias_hint.setVisible(False)
             return
-        # Look up single item price by alias
-        single = self._get_single_price_by_alias(alias)
+        is_case = self.t_case.isChecked()
+        single = self._get_single_by_alias(alias)
         if single:
-            pid, name, price = single
-            self.alias_hint.setText(f"↳ Single price pulled: ${price:.2f} ({name})")
-            self.alias_hint.setVisible(True)
-            self._calc_case_price()
+            pid, name, cost, selling_price, group_id, group_name = single
+            if is_case:
+                self.alias_hint.setText(f"↳ Single found: {name}  (cost ${cost:.2f})")
+                self.alias_hint.setVisible(True)
+                self._calc_case_price()
+            else:
+                # Auto-inherit group from alias siblings
+                if group_id and self.f_group.currentData() != group_id:
+                    idx = self.f_group.findData(group_id)
+                    if idx >= 0:
+                        self.f_group.setCurrentIndex(idx)
+                    else:
+                        self.f_group.setCurrentText(group_name or "")
+                    self.alias_hint.setText(f"↳ Group inherited from alias: {group_name}")
+                else:
+                    self.alias_hint.setText(f"↳ Alias found: {name}")
+                self.alias_hint.setVisible(True)
+                self._calc_selling_price()
         else:
             self.alias_hint.setText("↳ No single item found for this alias")
             self.alias_hint.setVisible(True)
 
+    def _calc_selling_price(self, *_):
+        """Auto-calculate selling price for single products: cost × (1 + group_profit%)."""
+        if self.t_case.isChecked():
+            return
+        try:
+            cost = float(self.f_cost.text() or "0")
+        except ValueError:
+            self.f_selling_price.clear()
+            self.selling_price_hint.setText("")
+            return
+
+        group_name = self.f_group.currentText().strip()
+        if not group_name or group_name == "— None —":
+            # No group — sell at cost
+            self.f_selling_price.setText(f"${cost:.2f}")
+            self.selling_price_hint.setText("= cost (no group markup)")
+            return
+
+        # Look up group profit %
+        conn = get_products_conn()
+        row = conn.execute(
+            "SELECT profit_percent FROM product_groups WHERE group_name = ?", (group_name,)
+        ).fetchone()
+        conn.close()
+
+        if row:
+            profit_pct = row[0]
+            selling = round(cost * (1 + profit_pct / 100), 2)
+            self.f_selling_price.setText(f"${selling:.2f}")
+            self.selling_price_hint.setText(
+                f"= ${cost:.2f} × (1 + {profit_pct:.1f}%) = ${selling:.2f}"
+            )
+        else:
+            self.f_selling_price.setText(f"${cost:.2f}")
+            self.selling_price_hint.setText("= cost (group not found)")
+
     def _calc_case_price(self):
-        """Auto-calculate case price from single price × qty + profit %."""
+        """Auto-calculate case selling price: single_cost × qty × (1 + case_profit%)."""
         if not self.t_case.isChecked():
             return
-        alias  = self.f_alias.text().strip()
-        single = self._get_single_price_by_alias(alias)
+        alias = self.f_alias.text().strip()
+        single = self._get_single_by_alias(alias)
         if not single:
             return
-        _, name, single_price = single
+        _, name, single_cost, _, _, _ = single
         try:
             qty    = int(self.f_case_qty.text()    or "0")
             profit = float(self.f_case_profit.text() or "0")
@@ -1948,24 +2024,25 @@ class SupervisorDashboard(BaseWindow):
             return
         if qty <= 0:
             return
-        base  = single_price * qty
-        price = round(base * (1 + profit / 100), 2)
-        self.f_case_price.setText(f"${price:.2f}")
-        self.f_price.setText(str(price))
+        case_cost = round(single_cost * qty, 4)
+        selling   = round(case_cost * (1 + profit / 100), 2)
+        self.f_case_price.setText(f"${selling:.2f}")
+        self.f_cost.setText(str(case_cost))
         self.case_formula.setText(
-            f"= (${single_price:.2f} × {qty}) + {profit:.0f}% profit"
+            f"= (${single_cost:.2f} cost × {qty}) × (1 + {profit:.0f}%) = ${selling:.2f}"
         )
 
-    def _get_single_price_by_alias(self, alias):
-        """Return (id, name, price) of the single item with this alias."""
+    def _get_single_by_alias(self, alias):
+        """Return (id, name, cost, selling_price, group_id, group_name) of single item with this alias."""
         if not alias:
             return None
         conn   = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT p.id, p.name, p.price
+            SELECT p.id, p.name, p.cost, p.selling_price, p.group_id, pg.group_name
             FROM products p
             INNER JOIN aliases a ON a.id = p.alias_id
+            LEFT JOIN product_groups pg ON pg.id = p.group_id
             WHERE a.alias_name = ? AND p.is_case = 0
             LIMIT 1
         """, (alias,))
@@ -1983,7 +2060,7 @@ class SupervisorDashboard(BaseWindow):
         if query:
             like = f"%{query}%"
             cursor.execute("""
-                SELECT p.id, p.name, p.barcode, p.brand, p.price,
+                SELECT p.id, p.name, p.barcode, p.brand, p.cost, p.selling_price,
                        pg.group_name, p.gct_applicable, p.is_case
                 FROM products p
                 LEFT JOIN product_groups pg ON pg.id = p.group_id
@@ -1994,7 +2071,7 @@ class SupervisorDashboard(BaseWindow):
             """, (like, like, like, like))
         else:
             cursor.execute("""
-                SELECT p.id, p.name, p.barcode, p.brand, p.price,
+                SELECT p.id, p.name, p.barcode, p.brand, p.cost, p.selling_price,
                        pg.group_name, p.gct_applicable, p.is_case
                 FROM products p
                 LEFT JOIN product_groups pg ON pg.id = p.group_id
@@ -2010,7 +2087,7 @@ class SupervisorDashboard(BaseWindow):
         left   = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
 
         for row, r in enumerate(rows):
-            pid, name, barcode, brand, price, group, gct, is_case = r
+            pid, name, barcode, brand, cost, selling_price, group, gct, is_case = r
 
             def cell(text, color="#ffffff", align=left):
                 c = QTableWidgetItem(str(text or ""))
@@ -2022,7 +2099,7 @@ class SupervisorDashboard(BaseWindow):
             self.product_table.setItem(row, 0, cell(name))
             self.product_table.setItem(row, 1, cell(barcode, "#4493f8"))
             self.product_table.setItem(row, 2, cell(brand or "—", "#8b949e"))
-            self.product_table.setItem(row, 3, cell(f"${price:.2f}", "#4493f8", center))
+            self.product_table.setItem(row, 3, cell(f"${selling_price:.2f}", "#3fb950", center))
             self.product_table.setItem(row, 4, cell(group or "—", "#8b949e"))
 
             # GCT badge
@@ -2119,7 +2196,9 @@ class SupervisorDashboard(BaseWindow):
         self.f_brand.clear()
         self.f_name.clear()
         self.f_alias.clear()
-        self.f_price.clear()
+        self.f_cost.clear()
+        self.f_selling_price.clear()
+        self.selling_price_hint.setText("")
         self.f_case_qty.clear()
         self.f_case_profit.clear()
         self.f_case_price.clear()
@@ -2136,7 +2215,7 @@ class SupervisorDashboard(BaseWindow):
         conn   = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT p.id, p.barcode, p.brand, p.name, p.price,
+            SELECT p.id, p.barcode, p.brand, p.name, p.cost, p.selling_price,
                    a.alias_name, p.group_id, p.discount_level,
                    p.gct_applicable, p.is_case, p.case_quantity
             FROM products p
@@ -2148,7 +2227,7 @@ class SupervisorDashboard(BaseWindow):
         if not row:
             return
 
-        pid, barcode, brand, name, price, alias, group_id, disc_id, gct, is_case, case_qty = row
+        pid, barcode, brand, name, cost, selling_price, alias, group_id, disc_id, gct, is_case, case_qty = row
         self.editing_product_id = pid
         self.form_title.setText("✏  Edit Product")
 
@@ -2156,7 +2235,8 @@ class SupervisorDashboard(BaseWindow):
         self.f_brand.setText(brand   or "")
         self.f_name.setText(name     or "")
         self.f_alias.setText(alias   or "")
-        self.f_price.setText(str(price))
+        self.f_cost.setText(str(cost))
+        self.f_selling_price.setText(f"${selling_price:.2f}")
         self.t_gct.setChecked(bool(gct))
         self.t_case.setChecked(bool(is_case))
 
@@ -2188,9 +2268,9 @@ class SupervisorDashboard(BaseWindow):
             return
 
         try:
-            price = float(self.f_price.text() or "0")
+            cost = float(self.f_cost.text() or "0")
         except ValueError:
-            QMessageBox.warning(self, "Invalid Price", "Please enter a valid price.")
+            QMessageBox.warning(self, "Invalid Cost", "Please enter a valid cost.")
             return
 
         case_qty = None
@@ -2200,8 +2280,9 @@ class SupervisorDashboard(BaseWindow):
             except ValueError:
                 case_qty = 0
 
-        group_name = self.f_group.currentText().strip()
-        disc_id  = self.f_discount.currentData()
+        # Cases cannot have a group
+        group_name = "" if is_case else self.f_group.currentText().strip()
+        disc_id    = self.f_discount.currentData()
 
         try:
             conn   = get_products_conn()
@@ -2216,67 +2297,69 @@ class SupervisorDashboard(BaseWindow):
                     "SELECT id FROM aliases WHERE alias_name = ?", (alias,))
                 alias_id = cursor.fetchone()[0]
 
-            # Get or create group
+            # Get or create group (singles only)
             group_id = None
             if group_name and group_name != "— None —":
                 cursor.execute(
                     "INSERT OR IGNORE INTO product_groups (group_name) VALUES (?)", (group_name,))
                 cursor.execute(
-                    "SELECT id FROM product_groups WHERE group_name = ?", (group_name,))
-                group_id = cursor.fetchone()[0]
+                    "SELECT id, profit_percent FROM product_groups WHERE group_name = ?", (group_name,))
+                grp_row = cursor.fetchone()
+                group_id = grp_row[0]
+
+            # Compute selling_price for singles
+            if not is_case:
+                if group_id:
+                    cursor.execute(
+                        "SELECT profit_percent FROM product_groups WHERE id = ?", (group_id,))
+                    pct_row = cursor.fetchone()
+                    profit_pct = pct_row[0] if pct_row else 0.0
+                    selling_price = round(cost * (1 + profit_pct / 100), 2)
+                else:
+                    selling_price = cost  # no group — sell at cost
+            else:
+                # Case: cost derived from single; selling_price from case_profit %
+                bconn = get_business_conn()
+                case_pct = bconn.execute(
+                    "SELECT case_profit_percent FROM business_info WHERE id=1"
+                ).fetchone()
+                bconn.close()
+                case_pct = case_pct[0] if case_pct else 14.0
+                selling_price = round(cost * (1 + case_pct / 100), 2)
 
             if self.editing_product_id:
                 cursor.execute("""
                     UPDATE products SET
-                        barcode = ?, brand = ?, name = ?, price = ?,
+                        barcode = ?, brand = ?, name = ?, cost = ?, selling_price = ?,
                         alias_id = ?, group_id = ?, discount_level = ?,
                         gct_applicable = ?, is_case = ?, case_quantity = ?
                     WHERE id = ?
-                """, (barcode, brand, name, price, alias_id, group_id,
+                """, (barcode, brand, name, cost, selling_price, alias_id, group_id,
                       disc_id, gct, is_case, case_qty,
                       self.editing_product_id))
 
-                # Update alias description for all linked products
                 if alias_id:
-                    cursor.execute("""
-                        UPDATE aliases SET description = ?
-                        WHERE id = ?
-                    """, (name, alias_id))
+                    cursor.execute(
+                        "UPDATE aliases SET description = ? WHERE id = ?", (name, alias_id))
             else:
                 cursor.execute("""
                     INSERT INTO products
-                        (barcode, brand, name, price, alias_id, group_id,
+                        (barcode, brand, name, cost, selling_price, alias_id, group_id,
                          discount_level, gct_applicable, is_case, case_quantity)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (barcode, brand, name, price, alias_id, group_id,
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (barcode, brand, name, cost, selling_price, alias_id, group_id,
                       disc_id, gct, is_case, case_qty))
 
             conn.commit()
 
-            # POINT 2 — If editing a single item price, offer to sync alias siblings
-            if self.editing_product_id and not is_case and alias_id:
-                cursor.execute(
-                    "SELECT id, name FROM products WHERE alias_id = ? AND is_case = 0 AND id != ?",
-                    (alias_id, self.editing_product_id)
-                )
-                siblings = cursor.fetchall()
-                conn.close()
-                if siblings:
-                    sibling_names = ", ".join(s[1] for s in siblings)
-                    reply = QMessageBox.question(
-                        self, "Sync Alias Prices",
-                        f"Update price to ${price:.2f} for all other single items "
-                        f"with alias '{alias}'?\n\nAffected: {sibling_names}",
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                    )
-                    if reply == QMessageBox.StandardButton.Yes:
-                        conn2 = get_products_conn()
-                        for sid, _ in siblings:
-                            conn2.execute("UPDATE products SET price = ? WHERE id = ?", (price, sid))
-                        conn2.commit()
-                        conn2.close()
+            # Cascade: if this is a single with an alias, recalculate linked cases
+            saved_id = self.editing_product_id or cursor.lastrowid
+            if not is_case and alias_id:
+                recalculate_selling_prices(conn=conn, product_ids=[saved_id])
             else:
-                conn.close()
+                conn.commit()
+
+            conn.close()
 
             QMessageBox.information(self, "Saved",
                                     f"Product '{name}' saved successfully!")
@@ -2287,6 +2370,8 @@ class SupervisorDashboard(BaseWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save product:\n{e}")
+
+
 
     def _delete_product(self, product_id):
         """Delete a product after confirmation."""

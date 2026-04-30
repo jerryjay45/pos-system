@@ -22,7 +22,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QDoubleValidator
 
 from ui.supervisor_dashboard import SupervisorDashboard
-from db import get_users_conn, get_business_conn, get_products_conn
+from db import get_users_conn, get_business_conn, get_products_conn, recalculate_selling_prices, recalculate_all_cases
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -660,6 +660,7 @@ class ManagerDashboard(SupervisorDashboard):
         vbox.setContentsMargins(0, 0, 0, 0)
 
         vbox.addWidget(self._build_gct_panel())
+        vbox.addWidget(self._build_case_profit_panel())
         vbox.addWidget(self._build_discount_panel())
         vbox.addWidget(self._build_groups_panel())
         vbox.addStretch()
@@ -735,7 +736,89 @@ class ManagerDashboard(SupervisorDashboard):
             self.gct_feedback.setStyleSheet("color: #f87171; font-size: 11px;")
             self.gct_feedback.setText(str(e))
 
-    # ── Discount levels panel ─────────────────────────────────────────
+    # ── Case profit panel ─────────────────────────────────────────────
+
+    def _build_case_profit_panel(self):
+        panel = QFrame()
+        panel.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(10)
+
+        title = QLabel("CASE PROFIT %")
+        title.setStyleSheet(_SECTION_LBL)
+        layout.addWidget(title)
+
+        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine); sep.setStyleSheet(_DIVIDER)
+        layout.addWidget(sep)
+
+        desc = QLabel(
+            "Profit markup applied to all case products.\n"
+            "Case cost = single item cost × case quantity.\n"
+            "Selling price = case cost × (1 + case profit %)."
+        )
+        desc.setStyleSheet("color: #8b949e; font-size: 11px;")
+        desc.setWordWrap(True)
+        layout.addWidget(desc)
+
+        row = QHBoxLayout()
+        lbl = QLabel("Case Profit %:")
+        lbl.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+
+        self.case_profit_spin = QDoubleSpinBox()
+        self.case_profit_spin.setFixedHeight(34)
+        self.case_profit_spin.setRange(0.0, 500.0)
+        self.case_profit_spin.setDecimals(2)
+        self.case_profit_spin.setSuffix("  %")
+        self.case_profit_spin.setStyleSheet(_INPUT)
+
+        self.case_profit_feedback = QLabel("")
+        self.case_profit_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+
+        save_btn = QPushButton("Save")
+        save_btn.setFixedHeight(34)
+        save_btn.setFixedWidth(70)
+        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_btn.setStyleSheet(_BTN_BLUE)
+        save_btn.clicked.connect(self._case_profit_save)
+
+        row.addWidget(lbl)
+        row.addWidget(self.case_profit_spin, stretch=1)
+        row.addWidget(save_btn)
+        layout.addLayout(row)
+        layout.addWidget(self.case_profit_feedback)
+
+        self._case_profit_load()
+        return panel
+
+    def _case_profit_load(self):
+        try:
+            conn = get_business_conn()
+            row = conn.execute(
+                "SELECT case_profit_percent FROM business_info WHERE id=1"
+            ).fetchone()
+            conn.close()
+            if row:
+                self.case_profit_spin.setValue(row[0])
+        except Exception:
+            self.case_profit_spin.setValue(14.0)
+
+    def _case_profit_save(self):
+        try:
+            new_pct = self.case_profit_spin.value()
+            conn = get_business_conn()
+            conn.execute(
+                "UPDATE business_info SET case_profit_percent=? WHERE id=1", (new_pct,)
+            )
+            conn.commit()
+            conn.close()
+            # Recalculate all case selling prices with the new %
+            recalculate_all_cases(case_profit_pct=new_pct)
+            self.case_profit_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+            self.case_profit_feedback.setText("✓ Case profit saved. All case prices updated.")
+        except Exception as e:
+            self.case_profit_feedback.setStyleSheet("color: #f87171; font-size: 11px;")
+            self.case_profit_feedback.setText(str(e))
 
     def _build_discount_panel(self):
         panel = QFrame()
@@ -986,6 +1069,7 @@ class ManagerDashboard(SupervisorDashboard):
     def _grp_save(self):
         try:
             conn = get_products_conn()
+            changed_group_ids = []
             for row in range(self.grp_table.rowCount()):
                 name_w   = self.grp_table.cellWidget(row, 0)
                 profit_w = self.grp_table.cellWidget(row, 1)
@@ -1004,10 +1088,16 @@ class ManagerDashboard(SupervisorDashboard):
                         "UPDATE product_groups SET group_name=?, profit_percent=? WHERE id=?",
                         (name, profit, row_id)
                     )
+                    changed_group_ids.append(row_id)
             conn.commit()
+
+            # Recalculate selling prices for changed groups and cascade to linked cases
+            for gid in changed_group_ids:
+                recalculate_selling_prices(conn=conn, group_id=gid)
+
             conn.close()
             self.grp_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
-            self.grp_feedback.setText("✓ Groups saved.")
+            self.grp_feedback.setText("✓ Groups saved. Selling prices updated.")
             self._grp_load()
         except Exception as e:
             self.grp_feedback.setStyleSheet("color: #f87171; font-size: 11px;")

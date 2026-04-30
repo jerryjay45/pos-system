@@ -467,7 +467,7 @@ class CashierDashboard(BaseWindow):
         conn = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT p.id, p.name, p.price, p.discount_level, p.gct_applicable
+            SELECT p.id, p.name, p.selling_price, p.discount_level, p.gct_applicable
             FROM products p WHERE p.barcode = ?
         """, (barcode,))
         row = cursor.fetchone()
@@ -478,7 +478,7 @@ class CashierDashboard(BaseWindow):
         conn = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT p.id, p.name, p.price, p.discount_level, p.gct_applicable
+            SELECT p.id, p.name, p.selling_price, p.discount_level, p.gct_applicable
             FROM products p
             WHERE (p.name LIKE ? OR p.brand LIKE ?)
             LIMIT 20
@@ -536,6 +536,15 @@ class CashierDashboard(BaseWindow):
         gct   = round(price * (self.gct_rate / 100), 2) if gct_applicable else 0.0
         total = round((price + gct) * qty, 2)
 
+        # Fetch cost for profit snapshot at checkout
+        cost = 0.0
+        if pid:
+            conn = get_products_conn()
+            row = conn.execute("SELECT cost FROM products WHERE id = ?", (pid,)).fetchone()
+            conn.close()
+            if row:
+                cost = row[0]
+
         for item in self.cart:
             if item["id"] == pid:
                 item["qty"]  += qty
@@ -546,7 +555,7 @@ class CashierDashboard(BaseWindow):
 
         self.cart.append({
             "id": pid, "name": name, "qty": qty,
-            "price": price, "gct": gct, "total": total,
+            "price": price, "cost": cost, "gct": gct, "total": total,
             "gct_applicable": gct_applicable,
         })
         self._refresh_table()
@@ -660,7 +669,7 @@ class CashierDashboard(BaseWindow):
         conn = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT p.id, p.name, p.price, p.discount_level, p.gct_applicable
+            SELECT p.id, p.name, p.selling_price, p.discount_level, p.gct_applicable
             FROM products p
             INNER JOIN quick_keys qk ON qk.product_id = p.id
             ORDER BY qk.key_number ASC LIMIT 8

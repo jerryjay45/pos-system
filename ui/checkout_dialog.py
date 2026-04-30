@@ -328,14 +328,15 @@ class CheckoutDialog(QDialog):
                     INSERT INTO transaction_items
                         (transaction_id, product_id,
                          product_name_snapshot, barcode_snapshot,
-                         unit_price_snapshot, quantity,
+                         cost_snapshot, unit_price_snapshot, quantity,
                          gct_applicable, discount_applied, line_total)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     transaction_id,
                     item.get("id"),
                     item["name"],
                     item.get("barcode", ""),
+                    item.get("cost", 0.0),
                     item["price"],
                     item["qty"],
                     item.get("gct_applicable", 1),

@@ -87,9 +87,10 @@ def create_products_tables():
             barcode        TEXT    NOT NULL UNIQUE,
             brand          TEXT,
             name           TEXT    NOT NULL,
-            price          REAL    NOT NULL DEFAULT 0.0,
+            cost           REAL    NOT NULL DEFAULT 0.0,  -- purchase/wholesale price (singles only; cases derive from alias single)
+            selling_price  REAL    NOT NULL DEFAULT 0.0,  -- computed: cost*(1+group_profit%) for singles, case_cost*(1+case_profit%) for cases
             alias_id       INTEGER REFERENCES aliases(id) ON UPDATE CASCADE ON DELETE SET NULL,
-            group_id       INTEGER REFERENCES product_groups(id) ON DELETE SET NULL,
+            group_id       INTEGER REFERENCES product_groups(id) ON DELETE SET NULL,  -- NULL for cases and standalone no-group products
             discount_level INTEGER REFERENCES discount_levels(id) ON DELETE SET NULL,
             is_case        INTEGER NOT NULL DEFAULT 0,  -- 0 = single, 1 = case
             case_quantity  INTEGER DEFAULT 1,
@@ -117,6 +118,19 @@ def create_products_tables():
             "INSERT OR IGNORE INTO product_groups (group_name, profit_percent) VALUES (?,?)",
             (name, profit)
         )
+
+    # ── Migration: rename price → cost, add selling_price if upgrading ──
+    existing_prod_cols = {r[1] for r in cursor.execute(
+        "PRAGMA table_info(products)"
+    ).fetchall()}
+    if "price" in existing_prod_cols and "cost" not in existing_prod_cols:
+        cursor.execute("ALTER TABLE products RENAME COLUMN price TO cost")
+    if "selling_price" not in existing_prod_cols:
+        cursor.execute(
+            "ALTER TABLE products ADD COLUMN selling_price REAL NOT NULL DEFAULT 0.0"
+        )
+        # Seed selling_price = cost for existing products (no group profit info available here)
+        cursor.execute("UPDATE products SET selling_price = cost WHERE selling_price = 0.0")
 
     conn.commit()
     conn.close()
@@ -257,13 +271,23 @@ def create_transactions_tables():
             product_id            INTEGER,        -- reference only, may be NULL if deleted
             product_name_snapshot TEXT    NOT NULL,  -- snapshot
             barcode_snapshot      TEXT    NOT NULL,  -- snapshot
-            unit_price_snapshot   REAL    NOT NULL,  -- snapshot
+            cost_snapshot         REAL    NOT NULL DEFAULT 0.0, -- cost at time of sale
+            unit_price_snapshot   REAL    NOT NULL,  -- selling_price at time of sale
             quantity              INTEGER NOT NULL DEFAULT 1,
             gct_applicable        INTEGER NOT NULL DEFAULT 1,
             discount_applied      REAL    NOT NULL DEFAULT 0.0,
             line_total            REAL    NOT NULL
         )
     """)
+
+    # ── Migration: add cost_snapshot if upgrading from old schema ──
+    existing_item_cols = {r[1] for r in cursor.execute(
+        "PRAGMA table_info(transaction_items)"
+    ).fetchall()}
+    if "cost_snapshot" not in existing_item_cols:
+        cursor.execute(
+            "ALTER TABLE transaction_items ADD COLUMN cost_snapshot REAL NOT NULL DEFAULT 0.0"
+        )
 
     conn.commit()
     conn.close()
@@ -280,6 +304,145 @@ def create_tables():
     create_users_tables()
     create_business_tables()
     create_transactions_tables()
+
+
+# ----------------------------------------------------------------
+# SELLING PRICE RECALCULATION
+# ----------------------------------------------------------------
+
+def recalculate_selling_prices(conn=None, product_ids=None, group_id=None, all_products=False):
+    """
+    Recalculate selling_price for products and cascade to linked cases.
+
+    Rules:
+      - Single with group:    selling_price = cost * (1 + group.profit_percent / 100)
+      - Single no group:      selling_price = cost  (sell at cost, no markup)
+      - Case:                 case_cost = alias_single.cost * case_quantity
+                              selling_price = case_cost * (1 + business.case_profit_percent / 100)
+
+    Pass one of:
+      product_ids  — list of specific product IDs to recalculate (singles; cascades to linked cases)
+      group_id     — recalculate all singles in this group (then cascade)
+      all_products — True to recalculate everything
+    """
+    close_conn = conn is None
+    if conn is None:
+        conn = get_products_conn()
+    cursor = conn.cursor()
+
+    # Get case profit % from business.db
+    bconn = get_business_conn()
+    row = bconn.execute(
+        "SELECT case_profit_percent FROM business_info WHERE id=1"
+    ).fetchone()
+    bconn.close()
+    case_profit_pct = row[0] if row else 14.0
+
+    # Build query for singles to recalculate
+    if all_products:
+        cursor.execute(
+            "SELECT id, cost, group_id, alias_id FROM products WHERE is_case = 0"
+        )
+    elif group_id is not None:
+        cursor.execute(
+            "SELECT id, cost, group_id, alias_id FROM products WHERE is_case = 0 AND group_id = ?",
+            (group_id,)
+        )
+    elif product_ids:
+        placeholders = ",".join("?" * len(product_ids))
+        cursor.execute(
+            f"SELECT id, cost, group_id, alias_id FROM products "
+            f"WHERE is_case = 0 AND id IN ({placeholders})",
+            product_ids
+        )
+    else:
+        if close_conn:
+            conn.close()
+        return
+
+    singles = cursor.fetchall()
+    affected_alias_ids = set()
+
+    for pid, cost, grp_id, alias_id in singles:
+        if grp_id:
+            grp_row = cursor.execute(
+                "SELECT profit_percent FROM product_groups WHERE id = ?", (grp_id,)
+            ).fetchone()
+            profit_pct = grp_row[0] if grp_row else 0.0
+            selling_price = round(cost * (1 + profit_pct / 100), 2)
+        else:
+            selling_price = cost  # standalone no-group: sell at cost
+
+        cursor.execute(
+            "UPDATE products SET selling_price = ? WHERE id = ?", (selling_price, pid)
+        )
+        if alias_id:
+            affected_alias_ids.add(alias_id)
+
+    # Cascade to cases that share an affected alias
+    for alias_id in affected_alias_ids:
+        single_row = cursor.execute(
+            "SELECT cost FROM products WHERE alias_id = ? AND is_case = 0 LIMIT 1",
+            (alias_id,)
+        ).fetchone()
+        if not single_row:
+            continue
+        single_cost = single_row[0]
+
+        cases = cursor.execute(
+            "SELECT id, case_quantity FROM products WHERE alias_id = ? AND is_case = 1",
+            (alias_id,)
+        ).fetchall()
+        for case_id, case_qty in cases:
+            case_qty = case_qty or 1
+            case_cost = round(single_cost * case_qty, 4)
+            case_selling = round(case_cost * (1 + case_profit_pct / 100), 2)
+            cursor.execute(
+                "UPDATE products SET cost = ?, selling_price = ? WHERE id = ?",
+                (case_cost, case_selling, case_id)
+            )
+
+    conn.commit()
+    if close_conn:
+        conn.close()
+
+
+def recalculate_all_cases(case_profit_pct=None):
+    """Recalculate selling_price for ALL case products (called when case_profit_percent changes)."""
+    conn = get_products_conn()
+    cursor = conn.cursor()
+
+    if case_profit_pct is None:
+        bconn = get_business_conn()
+        row = bconn.execute(
+            "SELECT case_profit_percent FROM business_info WHERE id=1"
+        ).fetchone()
+        bconn.close()
+        case_profit_pct = row[0] if row else 14.0
+
+    cases = cursor.execute(
+        "SELECT id, alias_id, case_quantity FROM products WHERE is_case = 1"
+    ).fetchall()
+
+    for case_id, alias_id, case_qty in cases:
+        if not alias_id:
+            continue
+        single_row = cursor.execute(
+            "SELECT cost FROM products WHERE alias_id = ? AND is_case = 0 LIMIT 1",
+            (alias_id,)
+        ).fetchone()
+        if not single_row:
+            continue
+        case_qty = case_qty or 1
+        case_cost = round(single_row[0] * case_qty, 4)
+        case_selling = round(case_cost * (1 + case_profit_pct / 100), 2)
+        cursor.execute(
+            "UPDATE products SET cost = ?, selling_price = ? WHERE id = ?",
+            (case_cost, case_selling, case_id)
+        )
+
+    conn.commit()
+    conn.close()
 
 
 if __name__ == "__main__":
