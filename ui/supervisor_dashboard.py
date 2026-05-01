@@ -10,12 +10,16 @@ from PyQt6.QtWidgets import (
     QFrame, QTabWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QLineEdit, QComboBox, QCheckBox, QAbstractItemView,
     QMessageBox, QScrollArea, QSizePolicy, QFormLayout, QCompleter,
-    QSplitter, QTreeWidget, QTreeWidgetItem
+    QSplitter, QTreeWidget, QTreeWidgetItem, QSpinBox, QListWidget,
+    QListWidgetItem, QRadioButton, QButtonGroup, QGroupBox
 )
-from PyQt6.QtCore import Qt, QTimer, QStringListModel
-from PyQt6.QtGui import QColor, QDoubleValidator, QIntValidator
+from PyQt6.QtCore import Qt, QTimer, QStringListModel, QRectF, QSizeF, QMarginsF
+from PyQt6.QtGui import (
+    QColor, QDoubleValidator, QIntValidator, QPainter, QFont,
+    QFontMetrics, QPen, QBrush, QPageSize, QPageLayout
+)
 from ui.base_window import BaseWindow
-from db import get_products_conn, get_users_conn, get_transactions_conn, get_business_conn
+from db import get_products_conn, get_users_conn, get_transactions_conn, get_business_conn, recalculate_selling_prices
 
 
 class SupervisorDashboard(BaseWindow):
@@ -120,6 +124,7 @@ class SupervisorDashboard(BaseWindow):
         self.tabs.addTab(self._build_reports_tab(),       "Reports")
         self.tabs.addTab(self._build_transactions_tab(),  "Transactions")
         self.tabs.addTab(self._build_void_tab(),          "Void / Refund")
+        self.tabs.addTab(self._build_labels_tab(),        "🏷  Labels")
         self.tabs.setCurrentIndex(0)
         return self.tabs
 
@@ -290,7 +295,8 @@ class SupervisorDashboard(BaseWindow):
         self.rpt_print_btn.setStyleSheet(_btn_outline)
         self.rpt_print_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.rpt_print_btn.setEnabled(False)
-        self.rpt_print_btn.clicked.connect(self._rpt_print)
+
+        session_bar.addWidget(self.rpt_session_header)
         session_bar.addStretch()
         session_bar.addWidget(self.rpt_search_bar)
         session_bar.addWidget(self.rpt_refresh_btn)
@@ -536,22 +542,6 @@ class SupervisorDashboard(BaseWindow):
         self.rpt_print_btn.setEnabled(False)
 
     # ── Reports: actions ─────────────────────────────────────────────
-
-    def _rpt_print(self):
-        """Print session summary for the selected cashing session."""
-        session_id = getattr(self, "_rpt_selected_session_id", None)
-        if not session_id:
-            return
-        try:
-            from printing.print_manager import print_session
-            ok, err = print_session(session_id, parent=self)
-            if not ok and err != "Cancelled":
-                QMessageBox.warning(
-                    self, "Print Failed",
-                    f"Could not print session summary:\n{err}"
-                )
-        except Exception as e:
-            QMessageBox.critical(self, "Print Error", str(e))
 
     def _rpt_refresh(self):
         """Reload cashier list; if a cashier is selected reload their sessions too."""
@@ -941,22 +931,17 @@ class SupervisorDashboard(BaseWindow):
         self.tx_reprint_btn.setEnabled(True)
 
     def _tx_reprint(self):
-        """Reprint the selected receipt — shows printer selection dialog."""
-        row  = self.tx_table.currentRow()
+        """Reprint the selected receipt. Wired to printer when receipt printing is implemented."""
+        row = self.tx_table.currentRow()
         item = self.tx_table.item(row, 0)
         if not item:
             return
         tx_id = item.data(Qt.ItemDataRole.UserRole)
-        try:
-            from printing.print_manager import reprint_receipt
-            ok, err = reprint_receipt(tx_id, parent=self)
-            if not ok and err != "Cancelled":
-                QMessageBox.warning(
-                    self, "Print Failed",
-                    f"Could not print receipt #{tx_id}:\n{err}"
-                )
-        except Exception as e:
-            QMessageBox.critical(self, "Print Error", str(e))
+        QMessageBox.information(
+            self, "Reprint Receipt",
+            f"Reprint for Receipt #{tx_id} will be sent to the printer.\n"
+            "(Receipt printing not yet implemented — wire to printer module here.)"
+        )
 
     # ================================================================
     # VOID / REFUND TAB — stub
@@ -1465,18 +1450,6 @@ class SupervisorDashboard(BaseWindow):
             self.vr_status_banner.setVisible(True)
             self._vr_load(status_filter="completed" if self.vr_status_filter.currentIndex() == 0 else "")
 
-            # Print void receipt
-            try:
-                from printing.print_manager import print_void
-                print_void(
-                    self._vr_selected_tx_id,
-                    reason=reason,
-                    supervisor_name=self.full_name,
-                    parent=self
-                )
-            except Exception as print_err:
-                print(f"[Print] Void receipt print failed: {print_err}")
-
         except Exception as e:
             QMessageBox.critical(self, "Void Failed", str(e))
 
@@ -1560,29 +1533,6 @@ class SupervisorDashboard(BaseWindow):
             self.vr_status_banner.setStyleSheet("color: #fcd34d; font-size: 12px; font-weight: 600;")
             self.vr_status_banner.setVisible(True)
             self._vr_load(status_filter="completed" if self.vr_status_filter.currentIndex() == 0 else "")
-
-            # Print refund receipt
-            try:
-                from printing.print_manager import print_refund
-                refund_items_fmt = [
-                    {
-                        "name":       it[0],
-                        "qty":        it[2],
-                        "unit_price": it[3],
-                        "line_total": it[5],
-                    }
-                    for it in refund_items
-                ]
-                print_refund(
-                    self._vr_selected_tx_id,
-                    refund_items=refund_items_fmt,
-                    refund_total=refund_total,
-                    reason=reason,
-                    supervisor_name=self.full_name,
-                    parent=self
-                )
-            except Exception as print_err:
-                print(f"[Print] Refund receipt print failed: {print_err}")
 
         except Exception as e:
             QMessageBox.critical(self, "Refund Failed", str(e))
@@ -1707,6 +1657,23 @@ class SupervisorDashboard(BaseWindow):
         self.f_cost     = self._form_input("Cost",     "0.00")
         self.f_cost.setValidator(QDoubleValidator(0, 999999, 2))
 
+        # Selling price — read-only, auto-computed from cost + group profit
+        self.f_selling_price = self._form_input("Selling Price", "")
+        self.f_selling_price.setReadOnly(True)
+        self.f_selling_price.setStyleSheet("""
+            QLineEdit {
+                background-color: #0d1a10; color: #3fb950;
+                border: 1px solid #1a3a20; border-radius: 6px;
+                padding: 0 10px; font-size: 13px;
+            }
+        """)
+        # Selling price hint label
+        self.selling_price_hint = QLabel("")
+        self.selling_price_hint.setStyleSheet("color: #484f58; font-size: 10px; font-style: italic;")
+
+        # Connect cost + group changes to selling price recalc
+        self.f_cost.textChanged.connect(self._calc_selling_price)
+
         # Setup alias autocomplete
         self._setup_alias_completer()
 
@@ -1720,9 +1687,9 @@ class SupervisorDashboard(BaseWindow):
         grp_lbl = QLabel("Group")
         grp_lbl.setStyleSheet("color: #8b949e; font-size: 11px; text-transform: uppercase;")
         self.f_group = QComboBox()
-        self.f_group.setEditable(True)
         self.f_group.setStyleSheet(self._combo_style())
-        self._setup_group_completer()
+        self._populate_groups()
+        self.f_group.currentIndexChanged.connect(self._calc_selling_price)
 
         # Discount level dropdown
         disc_lbl = QLabel("Discount Level")
@@ -1761,8 +1728,6 @@ class SupervisorDashboard(BaseWindow):
 
         self.f_case_qty    = self._form_input("Case Quantity", "e.g. 24")
         self.f_case_qty.setValidator(QIntValidator(1, 9999))
-        self.f_case_profit = self._form_input("Case Profit %", "e.g. 14")
-        self.f_case_profit.setValidator(QDoubleValidator(0, 100, 2))
 
         self.f_case_price  = self._form_input("Auto-calculated Price", "")
         self.f_case_price.setReadOnly(True)
@@ -1779,12 +1744,10 @@ class SupervisorDashboard(BaseWindow):
 
         # Connect case calc triggers
         self.f_case_qty.textChanged.connect(self._calc_case_price)
-        self.f_case_profit.textChanged.connect(self._calc_case_price)
         self.f_alias.textChanged.connect(self._calc_case_price)
 
         case_layout.addWidget(case_title)
         case_layout.addWidget(self._field_wrap("Case Quantity",         self.f_case_qty))
-        case_layout.addWidget(self._field_wrap("Case Profit %",         self.f_case_profit))
         case_layout.addWidget(self._field_wrap("Auto-calculated Price", self.f_case_price))
         case_layout.addWidget(self.case_formula)
 
@@ -1826,6 +1789,8 @@ class SupervisorDashboard(BaseWindow):
         layout.addWidget(self._field_wrap("Alias",          self.f_alias))
         layout.addWidget(self.alias_hint)
         layout.addWidget(self._field_wrap("Cost",           self.f_cost))
+        layout.addWidget(self._field_wrap("Selling Price",  self.f_selling_price))
+        layout.addWidget(self.selling_price_hint)
         layout.addWidget(grp_lbl)
         layout.addWidget(self.f_group)
         layout.addWidget(disc_lbl)
@@ -1959,7 +1924,7 @@ class SupervisorDashboard(BaseWindow):
     def _on_case_toggled(self, state):
         is_case = state == Qt.CheckState.Checked.value
         self.case_box.setVisible(is_case)
-        # Price field disabled for cases — auto-calculated
+        # Cost and group are disabled for cases — case cost derives from single via alias
         self.f_cost.setReadOnly(is_case)
         self.f_cost.setStyleSheet("""
             QLineEdit {
@@ -1968,59 +1933,144 @@ class SupervisorDashboard(BaseWindow):
                 padding: 0 10px; font-size: 13px;
             }
         """ % (("#0d1117", "#484f58") if is_case else ("#161b22", "#ffffff")))
+        self.f_group.setEnabled(not is_case)
         if is_case:
+            self.f_selling_price.clear()
+            self.selling_price_hint.setText("Case price auto-calculated below")
             self._calc_case_price()
+        else:
+            self.selling_price_hint.setText("")
+            self._calc_selling_price()
 
     def _on_alias_changed(self):
         alias = self.f_alias.text().strip()
         if not alias:
             self.alias_hint.setVisible(False)
             return
-        # Look up single item cost by alias
-        single = self._get_single_price_by_alias(alias)
+        is_case = self.t_case.isChecked()
+        single = self._get_single_by_alias(alias)
         if single:
-            pid, name, cost, selling_price = single
-            self.alias_hint.setText(f"↳ Single found: {name}  (cost ${cost:.2f}  sell ${selling_price:.2f})")
-            self.alias_hint.setVisible(True)
-            self._calc_case_price()
+            pid, name, cost, selling_price, group_id, group_name = single
+            if is_case:
+                self.alias_hint.setText(f"↳ Single found: {name}  (cost ${cost:.2f})")
+                self.alias_hint.setVisible(True)
+                self._calc_case_price()
+            else:
+                # Auto-inherit group, cost (if blank), and discount level from alias sibling
+                if group_id:
+                    idx = self.f_group.findData(group_id)
+                    if idx >= 0:
+                        self.f_group.setCurrentIndex(idx)
+
+                # Auto-fill discount level
+                try:
+                    conn_d = get_products_conn()
+                    disc_row = conn_d.execute(
+                        "SELECT discount_level FROM products WHERE id=?", (pid,)
+                    ).fetchone()
+                    conn_d.close()
+                    if disc_row and disc_row[0] is not None:
+                        idx = self.f_discount.findData(disc_row[0])
+                        if idx >= 0:
+                            self.f_discount.setCurrentIndex(idx)
+                except Exception:
+                    pass
+
+                # Auto-fill cost only if the field is currently empty
+                if not self.f_cost.text().strip():
+                    self.f_cost.setText(str(cost))
+
+                self.alias_hint.setText(
+                    f"↳ Inherited: {name}  |  group: {group_name or '—'}  |  cost: ${cost:.2f}"
+                )
+                self.alias_hint.setVisible(True)
+                self._calc_selling_price()
         else:
             self.alias_hint.setText("↳ No single item found for this alias")
             self.alias_hint.setVisible(True)
 
+    def _calc_selling_price(self, *_):
+        """Auto-calculate selling price for single products: cost × (1 + group_profit%)."""
+        if self.t_case.isChecked():
+            return
+        try:
+            cost = float(self.f_cost.text() or "0")
+        except ValueError:
+            self.f_selling_price.clear()
+            self.selling_price_hint.setText("")
+            return
+
+        group_id = self.f_group.currentData()
+        if not group_id:
+            # No group — sell at cost
+            self.f_selling_price.setText(f"${cost:.2f}")
+            self.selling_price_hint.setText("= cost (no group markup)")
+            return
+
+        # Look up group profit %
+        conn = get_products_conn()
+        row = conn.execute(
+            "SELECT profit_percent FROM product_groups WHERE id = ?", (group_id,)
+        ).fetchone()
+        conn.close()
+
+        if row:
+            profit_pct = row[0]
+            selling = round(cost * (1 + profit_pct / 100), 2)
+            self.f_selling_price.setText(f"${selling:.2f}")
+            self.selling_price_hint.setText(
+                f"= ${cost:.2f} × (1 + {profit_pct:.1f}%) = ${selling:.2f}"
+            )
+        else:
+            self.f_selling_price.setText(f"${cost:.2f}")
+            self.selling_price_hint.setText("= cost (group not found)")
+
     def _calc_case_price(self):
-        """Auto-calculate case price from single cost × qty × (1 + profit %)."""
+        """Auto-calculate case selling price: single_cost × qty × (1 + case_profit% from business)."""
         if not self.t_case.isChecked():
             return
-        alias  = self.f_alias.text().strip()
-        single = self._get_single_price_by_alias(alias)
+        alias = self.f_alias.text().strip()
+        single = self._get_single_by_alias(alias)
         if not single:
             return
-        _, name, single_cost, _ = single
+        _, name, single_cost, _, _, _ = single
         try:
-            qty    = int(self.f_case_qty.text()    or "0")
-            profit = float(self.f_case_profit.text() or "0")
+            qty = int(self.f_case_qty.text() or "0")
         except ValueError:
             return
         if qty <= 0:
             return
-        case_cost     = round(single_cost * qty, 4)
-        selling_price = round(case_cost * (1 + profit / 100), 2)
-        self.f_case_price.setText(f"${selling_price:.2f}")
+
+        # Fetch case profit % from business settings
+        try:
+            bconn = get_business_conn()
+            brow = bconn.execute(
+                "SELECT case_profit_percent FROM business_info WHERE id=1"
+            ).fetchone()
+            bconn.close()
+            profit = brow[0] if brow else 14.0
+        except Exception:
+            profit = 14.0
+
+        case_cost = round(single_cost * qty, 4)
+        selling   = round(case_cost * (1 + profit / 100), 2)
+        self.f_case_price.setText(f"${selling:.2f}")
         self.f_cost.setText(str(case_cost))
         self.case_formula.setText(
-            f"= (${single_cost:.2f} cost × {qty}) × (1 + {profit:.0f}%) = ${selling_price:.2f}"
+            f"= (${single_cost:.2f} × {qty}) × (1 + {profit:.0f}% case profit) = ${selling:.2f}"
         )
 
-    def _get_single_price_by_alias(self, alias):
-        """Return (id, name, price) of the single item with this alias."""
+    def _get_single_by_alias(self, alias):
+        """Return (id, name, cost, selling_price, group_id, group_name) of single item with this alias."""
         if not alias:
             return None
         conn   = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT p.id, p.name, p.cost, p.selling_price
+            SELECT p.id, p.name, p.cost, p.selling_price, p.group_id, pg.group_name
             FROM products p
             INNER JOIN aliases a ON a.id = p.alias_id
+            LEFT JOIN product_groups pg ON pg.id = p.group_id
             WHERE a.alias_name = ? AND p.is_case = 0
             LIMIT 1
         """, (alias,))
@@ -2175,8 +2225,9 @@ class SupervisorDashboard(BaseWindow):
         self.f_name.clear()
         self.f_alias.clear()
         self.f_cost.clear()
+        self.f_selling_price.clear()
+        self.selling_price_hint.setText("")
         self.f_case_qty.clear()
-        self.f_case_profit.clear()
         self.f_case_price.clear()
         self.case_formula.setText("")
         self.alias_hint.setVisible(False)
@@ -2212,6 +2263,7 @@ class SupervisorDashboard(BaseWindow):
         self.f_name.setText(name     or "")
         self.f_alias.setText(alias   or "")
         self.f_cost.setText(str(cost))
+        self.f_selling_price.setText(f"${selling_price:.2f}")
         self.t_gct.setChecked(bool(gct))
         self.t_case.setChecked(bool(is_case))
 
@@ -2255,7 +2307,21 @@ class SupervisorDashboard(BaseWindow):
             except ValueError:
                 case_qty = 0
 
-        group_name = self.f_group.currentText().strip()
+        # Capture original cost for sibling propagation (single products only)
+        _original_cost = None
+        if self.editing_product_id:
+            try:
+                _oc = get_products_conn()
+                _or = _oc.execute(
+                    "SELECT cost FROM products WHERE id=?", (self.editing_product_id,)
+                ).fetchone()
+                _oc.close()
+                _original_cost = _or[0] if _or else None
+            except Exception:
+                pass
+
+        # Cases cannot have a group — use group_id directly from combo data
+        group_id_direct = None if is_case else self.f_group.currentData()
         disc_id    = self.f_discount.currentData()
 
         try:
@@ -2271,34 +2337,27 @@ class SupervisorDashboard(BaseWindow):
                     "SELECT id FROM aliases WHERE alias_name = ?", (alias,))
                 alias_id = cursor.fetchone()[0]
 
-            # Get or create group (not for cases)
-            group_id = None
-            if not is_case and group_name and group_name != "— None —":
-                cursor.execute(
-                    "INSERT OR IGNORE INTO product_groups (group_name) VALUES (?)", (group_name,))
-                cursor.execute(
-                    "SELECT id, profit_percent FROM product_groups WHERE group_name = ?", (group_name,))
-                grp_row  = cursor.fetchone()
-                group_id = grp_row[0]
+            # Group is already resolved to an ID from the combo
+            group_id = group_id_direct
 
-            # Compute selling_price
+            # Compute selling_price for singles
             if not is_case:
                 if group_id:
                     cursor.execute(
                         "SELECT profit_percent FROM product_groups WHERE id = ?", (group_id,))
-                    pct_row    = cursor.fetchone()
+                    pct_row = cursor.fetchone()
                     profit_pct = pct_row[0] if pct_row else 0.0
                     selling_price = round(cost * (1 + profit_pct / 100), 2)
                 else:
                     selling_price = cost  # no group — sell at cost
             else:
-                # Case: selling_price from case_profit %
-                bconn   = get_business_conn()
-                cpt_row = bconn.execute(
+                # Case: cost derived from single; selling_price from case_profit %
+                bconn = get_business_conn()
+                case_pct = bconn.execute(
                     "SELECT case_profit_percent FROM business_info WHERE id=1"
                 ).fetchone()
                 bconn.close()
-                case_pct      = cpt_row[0] if cpt_row else 14.0
+                case_pct = case_pct[0] if case_pct else 14.0
                 selling_price = round(cost * (1 + case_pct / 100), 2)
 
             if self.editing_product_id:
@@ -2325,17 +2384,64 @@ class SupervisorDashboard(BaseWindow):
                       disc_id, gct, is_case, case_qty))
 
             conn.commit()
+
+            # Cascade: if this is a single with an alias, recalculate linked cases
+            saved_id = self.editing_product_id or cursor.lastrowid
+            if not is_case and alias_id:
+                recalculate_selling_prices(conn=conn, product_ids=[saved_id])
+            else:
+                conn.commit()
+
             conn.close()
+
+            # ── Ask to propagate cost change to alias siblings ───────
+            if (not is_case and alias_id and _original_cost is not None
+                    and abs(cost - _original_cost) > 0.001):
+                try:
+                    conn_s = get_products_conn()
+                    siblings = conn_s.execute(
+                        "SELECT id, name FROM products "
+                        "WHERE alias_id=? AND is_case=0 AND id!=?",
+                        (alias_id, saved_id)
+                    ).fetchall()
+                    conn_s.close()
+                except Exception:
+                    siblings = []
+                if siblings:
+                    names_str = "\n".join(f"  • {s[1]}" for s in siblings)
+                    reply2 = QMessageBox.question(
+                        self, "Update Related Products",
+                        f"Cost changed from ${_original_cost:.2f} → ${cost:.2f}.\n\n"
+                        f"Apply the same cost to these products sharing the same alias?\n\n"
+                        f"{names_str}",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply2 == QMessageBox.StandardButton.Yes:
+                        try:
+                            conn_u = get_products_conn()
+                            for sid, _ in siblings:
+                                conn_u.execute(
+                                    "UPDATE products SET cost=? WHERE id=?", (cost, sid)
+                                )
+                            conn_u.commit()
+                            conn_u.close()
+                            recalculate_selling_prices(product_ids=[s[0] for s in siblings])
+                        except Exception as e:
+                            QMessageBox.warning(self, "Update Error", str(e))
 
             QMessageBox.information(self, "Saved",
                                     f"Product '{name}' saved successfully!")
             self._clear_form()
             self._update_alias_suggestions()
-            self._update_group_suggestions()
+            # Refresh the group combo with latest data
+            self.f_group.clear()
+            self._populate_groups()
             self._load_products()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save product:\n{e}")
+
+
 
     def _delete_product(self, product_id):
         """Delete a product after confirmation."""
@@ -2391,6 +2497,348 @@ class SupervisorDashboard(BaseWindow):
             f"Date: {now.strftime('%B %d, %Y')}  |  Time: {now.strftime('%I:%M %p')}"
         )
 
+    # ================================================================
+    # LABELS TAB
+    # ================================================================
+
+    # Label size presets: (label_w_mm, label_h_mm, display_name)
+    _LABEL_SIZES = [
+        (50,  30,  "50 × 30 mm  (standard shelf)"),
+        (70,  40,  "70 × 40 mm  (large shelf)"),
+        (100, 50,  "100 × 50 mm  (case label)"),
+        (38,  21,  "38 × 21 mm  (small price tag)"),
+    ]
+
+    def _build_labels_tab(self):
+        w = QWidget()
+        w.setStyleSheet("background-color: #161b22;")
+        root = QHBoxLayout(w)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(12)
+
+        root.addWidget(self._build_label_left(),    stretch=1)
+        root.addWidget(self._build_label_right(),   stretch=0)
+        return w
+
+    # ── Left: product search + list ──────────────────────────────────
+    def _build_label_left(self):
+        panel = QFrame()
+        panel.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        # Search bar
+        self.label_search = QLineEdit()
+        self.label_search.setPlaceholderText("🔍  Search product by name, barcode or brand…")
+        self.label_search.setFixedHeight(36)
+        self.label_search.setStyleSheet("""
+            QLineEdit {
+                background-color: #0d1117; color: #ffffff;
+                border: 1.5px solid #30363d; border-radius: 18px;
+                padding: 0 16px; font-size: 13px;
+            }
+            QLineEdit:focus { border-color: #1a56db; }
+        """)
+        self.label_search.textChanged.connect(self._label_filter_products)
+
+        # Product list
+        self.label_product_list = QListWidget()
+        self.label_product_list.setStyleSheet("""
+            QListWidget {
+                background-color: #0d1117; color: #c9d1d9;
+                border: none; border-radius: 8px; font-size: 13px;
+            }
+            QListWidget::item {
+                padding: 10px 14px;
+                border-bottom: 1px solid #21262d;
+            }
+            QListWidget::item:selected {
+                background-color: #1a56db22;
+                color: #ffffff;
+                border-left: 3px solid #1a56db;
+            }
+            QListWidget::item:hover { background-color: #21262d; }
+            QScrollBar:vertical { background: #0d1117; width: 6px; border-radius: 3px; }
+            QScrollBar::handle:vertical { background: #30363d; border-radius: 3px; }
+        """)
+        self.label_product_list.currentItemChanged.connect(self._label_on_product_selected)
+
+        layout.addWidget(self.label_search)
+        layout.addWidget(self.label_product_list, stretch=1)
+
+        self._label_load_products()
+        return panel
+
+    # ── Right: options + preview + print ─────────────────────────────
+    def _build_label_right(self):
+        panel = QFrame()
+        panel.setFixedWidth(320)
+        panel.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        # ── Label preview canvas ─────────────────────────────────────
+        preview_lbl = QLabel("LABEL PREVIEW")
+        preview_lbl.setStyleSheet(
+            "color: #8b949e; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
+        )
+
+        self.label_preview = _LabelPreviewWidget()
+        self.label_preview.setFixedHeight(200)
+
+        # ── Label size ───────────────────────────────────────────────
+        size_lbl = QLabel("LABEL SIZE")
+        size_lbl.setStyleSheet(
+            "color: #8b949e; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
+        )
+        self.label_size_combo = QComboBox()
+        self.label_size_combo.setFixedHeight(34)
+        self.label_size_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #0d1117; color: #ffffff;
+                border: 1.5px solid #30363d; border-radius: 8px;
+                padding: 0 12px; font-size: 13px;
+            }
+            QComboBox:focus { border-color: #1a56db; }
+            QComboBox::drop-down { border: none; width: 20px; }
+            QComboBox QAbstractItemView {
+                background: #0d1117; color: #c9d1d9;
+                border: 1px solid #30363d;
+                selection-background-color: #1a56db;
+            }
+        """)
+        for w_mm, h_mm, name in self._LABEL_SIZES:
+            self.label_size_combo.addItem(name, (w_mm, h_mm))
+        self.label_size_combo.currentIndexChanged.connect(self._label_update_preview)
+
+        # ── What to show on label ────────────────────────────────────
+        show_lbl = QLabel("SHOW ON LABEL")
+        show_lbl.setStyleSheet(
+            "color: #8b949e; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
+        )
+        chk_style = "color: #c9d1d9; font-size: 13px;"
+        self.label_chk_name    = QCheckBox("Product Name");   self.label_chk_name.setChecked(True)
+        self.label_chk_brand   = QCheckBox("Brand");          self.label_chk_brand.setChecked(True)
+        self.label_chk_price   = QCheckBox("Price");          self.label_chk_price.setChecked(True)
+        self.label_chk_barcode = QCheckBox("Barcode");        self.label_chk_barcode.setChecked(True)
+        for chk in (self.label_chk_name, self.label_chk_brand,
+                    self.label_chk_price, self.label_chk_barcode):
+            chk.setStyleSheet(chk_style)
+            chk.stateChanged.connect(self._label_update_preview)
+
+        # ── Copies ───────────────────────────────────────────────────
+        copies_row = QHBoxLayout()
+        copies_lbl = QLabel("Copies:")
+        copies_lbl.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+        self.label_copies = QSpinBox()
+        self.label_copies.setMinimum(1)
+        self.label_copies.setMaximum(999)
+        self.label_copies.setValue(1)
+        self.label_copies.setFixedWidth(80)
+        self.label_copies.setFixedHeight(34)
+        self.label_copies.setStyleSheet("""
+            QSpinBox {
+                background-color: #0d1117; color: #ffffff;
+                border: 1.5px solid #30363d; border-radius: 8px;
+                padding: 0 10px; font-size: 13px;
+            }
+            QSpinBox:focus { border-color: #1a56db; }
+            QSpinBox::up-button, QSpinBox::down-button {
+                background: #21262d; border: none; width: 18px;
+            }
+        """)
+        copies_row.addWidget(copies_lbl)
+        copies_row.addWidget(self.label_copies)
+        copies_row.addStretch()
+
+        # ── Print button ─────────────────────────────────────────────
+        self.label_print_btn = QPushButton("🖨  Print Labels")
+        self.label_print_btn.setFixedHeight(42)
+        self.label_print_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.label_print_btn.setEnabled(False)
+        self.label_print_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1a56db; color: #ffffff;
+                border: none; border-radius: 10px;
+                font-size: 14px; font-weight: 700;
+            }
+            QPushButton:hover   { background-color: #1145b0; }
+            QPushButton:pressed { background-color: #0e3a8a; }
+            QPushButton:disabled { background-color: #1a2540; color: #4a5a7a; }
+        """)
+        self.label_print_btn.clicked.connect(self._label_print)
+
+        # ── Status label ─────────────────────────────────────────────
+        self.label_status = QLabel("")
+        self.label_status.setStyleSheet("color: #3fb950; font-size: 12px;")
+        self.label_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # ── Assemble ─────────────────────────────────────────────────
+        layout.addWidget(preview_lbl)
+        layout.addWidget(self.label_preview)
+
+        div1 = QFrame(); div1.setFrameShape(QFrame.Shape.HLine)
+        div1.setStyleSheet("background: #30363d; max-height: 1px; border: none;")
+        layout.addWidget(div1)
+
+        layout.addWidget(size_lbl)
+        layout.addWidget(self.label_size_combo)
+
+        div2 = QFrame(); div2.setFrameShape(QFrame.Shape.HLine)
+        div2.setStyleSheet("background: #30363d; max-height: 1px; border: none;")
+        layout.addWidget(div2)
+
+        layout.addWidget(show_lbl)
+        layout.addWidget(self.label_chk_name)
+        layout.addWidget(self.label_chk_brand)
+        layout.addWidget(self.label_chk_price)
+        layout.addWidget(self.label_chk_barcode)
+
+        div3 = QFrame(); div3.setFrameShape(QFrame.Shape.HLine)
+        div3.setStyleSheet("background: #30363d; max-height: 1px; border: none;")
+        layout.addWidget(div3)
+
+        layout.addLayout(copies_row)
+        layout.addStretch()
+        layout.addWidget(self.label_print_btn)
+        layout.addWidget(self.label_status)
+
+        return panel
+
+    # ── Label data helpers ────────────────────────────────────────────
+
+    def _label_load_products(self, query=""):
+        conn   = get_products_conn()
+        cursor = conn.cursor()
+        if query:
+            like = f"%{query}%"
+            cursor.execute("""
+                SELECT p.id, p.name, p.barcode, p.brand, p.selling_price
+                FROM products p
+                WHERE p.name LIKE ? OR p.barcode LIKE ? OR p.brand LIKE ?
+                ORDER BY p.name
+            """, (like, like, like))
+        else:
+            cursor.execute("""
+                SELECT p.id, p.name, p.barcode, p.brand, p.selling_price
+                FROM products p
+                ORDER BY p.name
+            """)
+        rows = cursor.fetchall()
+        conn.close()
+
+        self.label_product_list.clear()
+        self._label_products = {}  # pid -> (name, barcode, brand, price)
+
+        for pid, name, barcode, brand, price in rows:
+            display = f"{name}"
+            if brand:
+                display += f"  —  {brand}"
+            display += f"    ${price:.2f}"
+            item = QListWidgetItem(display)
+            item.setData(Qt.ItemDataRole.UserRole, pid)
+            self.label_product_list.addItem(item)
+            self._label_products[pid] = {
+                "name":    name,
+                "barcode": barcode,
+                "brand":   brand or "",
+                "price":   price,
+            }
+
+    def _label_filter_products(self, text):
+        self._label_load_products(text.strip())
+
+    def _label_on_product_selected(self, current, _prev):
+        if not current:
+            self.label_print_btn.setEnabled(False)
+            self.label_preview.set_product(None)
+            return
+        pid  = current.data(Qt.ItemDataRole.UserRole)
+        data = self._label_products.get(pid)
+        if data:
+            self.label_preview.set_product(data)
+            self._label_update_preview()
+            self.label_print_btn.setEnabled(True)
+            self.label_status.setText("")
+
+    def _label_update_preview(self):
+        w_mm, h_mm = self.label_size_combo.currentData() or (50, 30)
+        options = {
+            "show_name":    self.label_chk_name.isChecked(),
+            "show_brand":   self.label_chk_brand.isChecked(),
+            "show_price":   self.label_chk_price.isChecked(),
+            "show_barcode": self.label_chk_barcode.isChecked(),
+            "label_w_mm":   w_mm,
+            "label_h_mm":   h_mm,
+        }
+        self.label_preview.set_options(options)
+        self.label_preview.update()
+
+    def _label_print(self):
+        item = self.label_product_list.currentItem()
+        if not item:
+            return
+        pid  = item.data(Qt.ItemDataRole.UserRole)
+        data = self._label_products.get(pid)
+        if not data:
+            return
+
+        w_mm, h_mm = self.label_size_combo.currentData()
+        copies     = self.label_copies.value()
+        options    = {
+            "show_name":    self.label_chk_name.isChecked(),
+            "show_brand":   self.label_chk_brand.isChecked(),
+            "show_price":   self.label_chk_price.isChecked(),
+            "show_barcode": self.label_chk_barcode.isChecked(),
+            "label_w_mm":   w_mm,
+            "label_h_mm":   h_mm,
+        }
+
+        try:
+            from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
+            from PyQt6.QtCore import QSizeF, QMarginsF
+            from PyQt6.QtGui import QPageSize, QPageLayout
+
+            printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+            printer.setColorMode(QPrinter.ColorMode.GrayScale)
+
+            # Set custom page size = label size
+            page_size = QPageSize(
+                QSizeF(w_mm, h_mm),
+                QPageSize.Unit.Millimeter,
+                "Label"
+            )
+            layout = QPageLayout(
+                page_size,
+                QPageLayout.Orientation.Portrait,
+                QMarginsF(0, 0, 0, 0),
+                QPageLayout.Unit.Millimeter
+            )
+            printer.setPageLayout(layout)
+
+            dlg = QPrintDialog(printer, self)
+            if dlg.exec() != QPrintDialog.DialogCode.Accepted:
+                return
+
+            painter = QPainter()
+            if not painter.begin(printer):
+                self.label_status.setText("❌  Could not start printer.")
+                return
+
+            rect = printer.pageRect(QPrinter.Unit.DevicePixel)
+            for i in range(copies):
+                if i > 0:
+                    printer.newPage()
+                _draw_label(painter, rect, data, options)
+
+            painter.end()
+            self.label_status.setText(f"✅  Printed {copies} label(s).")
+
+        except Exception as e:
+            self.label_status.setText(f"❌  {e}")
+
     # ----------------------------------------------------------------
     # LOGOUT
     # ----------------------------------------------------------------
@@ -2416,3 +2864,279 @@ class SupervisorDashboard(BaseWindow):
             (screen.width()  - self.width())  // 2,
             (screen.height() - self.height()) // 2
         )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# LABEL PREVIEW WIDGET  — draws a miniature label preview in the UI
+# ──────────────────────────────────────────────────────────────────────────────
+
+class _LabelPreviewWidget(QWidget):
+    """Draws a live preview of what the printed label will look like."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._product = None
+        self._options = {
+            "show_name": True, "show_brand": True,
+            "show_price": True, "show_barcode": True,
+            "label_w_mm": 50, "label_h_mm": 30,
+        }
+        self.setStyleSheet("background: transparent;")
+
+    def set_product(self, data):
+        self._product = data
+        self.update()
+
+    def set_options(self, options):
+        self._options = options
+        self.update()
+
+    def paintEvent(self, event):
+        if not self._product:
+            painter = QPainter(self)
+            painter.setPen(QColor("#30363d"))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
+                             "Select a product to preview")
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Label aspect ratio from size options
+        w_mm = self._options.get("label_w_mm", 50)
+        h_mm = self._options.get("label_h_mm", 30)
+        aspect = w_mm / h_mm
+
+        # Fit label into widget keeping aspect ratio, with margin
+        margin = 12
+        avail_w = self.width() - margin * 2
+        avail_h = self.height() - margin * 2
+
+        if avail_w / aspect <= avail_h:
+            lw = avail_w
+            lh = avail_w / aspect
+        else:
+            lh = avail_h
+            lw = avail_h * aspect
+
+        lx = (self.width()  - lw) / 2
+        ly = (self.height() - lh) / 2
+
+        rect = QRectF(lx, ly, lw, lh)
+
+        # Draw label background + border
+        painter.setBrush(QBrush(QColor("#ffffff")))
+        painter.setPen(QPen(QColor("#1a56db"), 1.5))
+        painter.drawRoundedRect(rect, 6, 6)
+
+        # Draw content inside label
+        _draw_label(painter, rect, self._product, self._options, preview=True)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SHARED LABEL DRAWING FUNCTION
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _draw_label(painter, rect, product, options, preview=False):
+    """
+    Draw label content into `rect` using `painter`.
+    Works for both the live preview (screen coords) and actual printing (device pixels).
+    """
+    show_name    = options.get("show_name", True)
+    show_brand   = options.get("show_brand", True)
+    show_price   = options.get("show_price", True)
+    show_barcode = options.get("show_barcode", True)
+
+    name    = product.get("name", "")
+    brand   = product.get("brand", "")
+    price   = product.get("price", 0.0)
+    barcode = product.get("barcode", "")
+
+    x  = rect.x()
+    y  = rect.y()
+    w  = rect.width()
+    h  = rect.height()
+    pad = w * 0.05
+
+    # Count visible sections to distribute vertical space
+    sections = sum([show_name, show_brand, show_price, show_barcode])
+    if sections == 0:
+        return
+
+    # Reserve barcode strip height (40% of label) if shown
+    barcode_h = h * 0.40 if show_barcode else 0
+    text_h    = h - barcode_h
+    row_h     = text_h / max(sections - (1 if show_barcode else 0), 1)
+
+    current_y = y + pad
+
+    painter.save()
+    painter.setClipRect(rect)
+
+    # ── Brand ────────────────────────────────────────────────────────
+    if show_brand and brand:
+        font = QFont("Arial", max(int(row_h * 0.28), 5))
+        font.setItalic(True)
+        painter.setFont(font)
+        painter.setPen(QColor("#555555") if preview else QColor("#444444"))
+        text_rect = QRectF(x + pad, current_y, w - pad * 2, row_h * 0.5)
+        painter.drawText(text_rect,
+                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                         brand.upper())
+        current_y += row_h * 0.5
+
+    # ── Name ─────────────────────────────────────────────────────────
+    if show_name and name:
+        font = QFont("Arial", max(int(row_h * 0.38), 6))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor("#000000"))
+        text_rect = QRectF(x + pad, current_y, w - pad * 2, row_h * 0.65)
+        # Elide name if too long
+        fm   = QFontMetrics(font)
+        elided = fm.elidedText(name, Qt.TextElideMode.ElideRight, int(w - pad * 2))
+        painter.drawText(text_rect,
+                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                         elided)
+        current_y += row_h * 0.65
+
+    # ── Price ─────────────────────────────────────────────────────────
+    if show_price:
+        price_str = f"${price:.2f}"
+        font = QFont("Arial", max(int(row_h * 0.55), 7))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor("#1a56db") if preview else QColor("#000080"))
+        text_rect = QRectF(x + pad, current_y, w - pad * 2, row_h * 0.7)
+        painter.drawText(text_rect,
+                         Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                         price_str)
+        current_y += row_h * 0.7
+
+    # ── Barcode ───────────────────────────────────────────────────────
+    if show_barcode and barcode:
+        bc_rect = QRectF(x + pad, current_y, w - pad * 2, barcode_h - pad)
+        _draw_barcode_bars(painter, bc_rect, barcode, preview)
+
+    painter.restore()
+
+
+def _draw_barcode_bars(painter, rect, barcode_text, preview=False):
+    """
+    Draw Code 128 barcode bars directly with QPainter.
+    Falls back to drawing the barcode number as text if encoding fails.
+    Uses python-barcode if available for accurate bar widths,
+    otherwise uses a simple deterministic bar pattern from the digits.
+    """
+    painter.save()
+
+    try:
+        import barcode as pybarcode
+        from barcode.writer import BaseWriter
+        import io
+
+        # Encode barcode to get bar widths (use SVG-style data via BaseWriter trick)
+        # We use the module output to extract bar pattern
+        bc_class = pybarcode.get_barcode_class("code128")
+
+        class _BarCollector(BaseWriter):
+            def __init__(self):
+                super().__init__()
+                self.bars = []  # list of (x_frac, w_frac, is_bar)
+
+            def render(self, code):
+                # code is list of (x, y, w, h, text) or similar
+                pass
+
+            def write(self, content, fp=None, text=None):
+                pass
+
+        # Use SVG output and parse bar positions
+        import io
+        buf = io.BytesIO()
+        bc  = bc_class(barcode_text, writer=pybarcode.writer.SVGWriter())
+        bc.write(buf)
+        svg_data = buf.getvalue().decode("utf-8", errors="ignore")
+
+        # Parse <rect> elements from SVG for bar positions
+        import re
+        rects = re.findall(
+            r'<rect[^>]+x="([^"]+)"[^>]+width="([^"]+)"[^>]+height="([^"]+)"',
+            svg_data
+        )
+        if rects:
+            # Convert to floats and normalize
+            parsed = [(float(rx), float(rw)) for rx, rw, rh in rects
+                      if float(rh) > 5]  # skip text underlines
+            if parsed:
+                min_x  = min(rx for rx, rw in parsed)
+                max_x  = max(rx + rw for rx, rw in parsed)
+                span   = max_x - min_x or 1
+
+                bar_area_h = rect.height() * 0.78
+                num_y      = rect.y() + bar_area_h + rect.height() * 0.04
+
+                painter.setBrush(QBrush(QColor("#000000")))
+                painter.setPen(Qt.PenStyle.NoPen)
+
+                for rx, rw in parsed:
+                    bx = rect.x() + ((rx - min_x) / span) * rect.width()
+                    bw = max((rw / span) * rect.width(), 1.0)
+                    painter.drawRect(QRectF(bx, rect.y(), bw, bar_area_h))
+
+                # Draw barcode number below bars
+                font = QFont("Courier New", max(int(rect.height() * 0.14), 5))
+                painter.setFont(font)
+                painter.setPen(QColor("#000000"))
+                num_rect = QRectF(rect.x(), num_y, rect.width(), rect.height() * 0.2)
+                painter.drawText(num_rect,
+                                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                                 barcode_text)
+                painter.restore()
+                return
+
+    except Exception:
+        pass
+
+    # ── Fallback: simple visual bar pattern derived from barcode digits ──
+    digits = [c for c in barcode_text if c.isdigit()]
+    if not digits:
+        digits = [str(ord(c) % 10) for c in barcode_text[:12]]
+
+    bar_area_h = rect.height() * 0.75
+    num_y      = rect.y() + bar_area_h + rect.height() * 0.04
+
+    # Build bar pattern: alternate narrow/wide bars based on digit values
+    bars = []
+    for d in digits:
+        v = int(d)
+        bars.append(1)           # always a narrow bar
+        bars.append(v % 3 + 1)  # gap: 1-3 units wide
+    # Add start/stop markers
+    bars = [2, 1, 2] + bars + [2, 1, 2, 1]
+
+    total_units = sum(bars)
+    unit_w = rect.width() / max(total_units, 1)
+
+    is_bar = True
+    cur_x  = rect.x()
+    painter.setPen(Qt.PenStyle.NoPen)
+
+    for units in bars:
+        bar_w = units * unit_w
+        if is_bar:
+            painter.setBrush(QBrush(QColor("#000000")))
+            painter.drawRect(QRectF(cur_x, rect.y(), max(bar_w - 0.5, 0.5), bar_area_h))
+        cur_x  += bar_w
+        is_bar  = not is_bar
+
+    # Barcode number below
+    font = QFont("Courier New", max(int(rect.height() * 0.15), 5))
+    painter.setFont(font)
+    painter.setPen(QColor("#000000"))
+    num_rect = QRectF(rect.x(), num_y, rect.width(), rect.height() * 0.22)
+    painter.drawText(num_rect,
+                     Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                     barcode_text)
+
+    painter.restore()

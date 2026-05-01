@@ -405,6 +405,22 @@ class CashierDashboard(BaseWindow):
         return self.carts[self.active_cart]
 
     # ----------------------------------------------------------------
+    # GLOBAL KEY HANDLER — F1-F8 quick keys from anywhere on screen
+    # ----------------------------------------------------------------
+
+    def keyPressEvent(self, event):
+        fkey_map = {
+            Qt.Key.Key_F1: 0, Qt.Key.Key_F2: 1, Qt.Key.Key_F3: 2,
+            Qt.Key.Key_F4: 3, Qt.Key.Key_F5: 4, Qt.Key.Key_F6: 5,
+            Qt.Key.Key_F7: 6, Qt.Key.Key_F8: 7,
+        }
+        idx = fkey_map.get(event.key())
+        if idx is not None:
+            self._add_quick_key(idx)
+            return
+        super().keyPressEvent(event)
+
+    # ----------------------------------------------------------------
     # SEARCH & RESULTS NAVIGATION
     # ----------------------------------------------------------------
 

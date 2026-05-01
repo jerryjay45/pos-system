@@ -1,0 +1,28 @@
+File "/home/shaq/Projects/pos-system-git/ui/login_window.py", line 165, in _handle_login
+    self._open_dashboard(user)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/shaq/Projects/pos-system-git/ui/login_window.py", line 235, in _open_dashboard
+    self.dashboard = ManagerDashboard(user_id, full_name)
+                     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/home/shaq/Projects/pos-system-git/ui/manager_dashboard.py", line 260, in __init__
+    super().__init__(user_id, full_name, role="manager")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/shaq/Projects/pos-system-git/ui/supervisor_dashboard.py", line 33, in __init__
+    self._build_ui()
+    ~~~~~~~~~~~~~~^^
+  File "/home/shaq/Projects/pos-system-git/ui/manager_dashboard.py", line 276, in _build_ui
+    layout.addWidget(self._build_tabs(), stretch=1)
+                     ~~~~~~~~~~~~~~~~^^
+  File "/home/shaq/Projects/pos-system-git/ui/manager_dashboard.py", line 347, in _build_tabs
+    self.tabs.addTab(self._build_quickkeys_tab(),  "⌨  Quick Keys")
+                     ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/shaq/Projects/pos-system-git/ui/manager_dashboard.py", line 1476, in _build_quickkeys_tab
+    sw = _ProductSearchWidget()
+  File "/home/shaq/Projects/pos-system-git/ui/manager_dashboard.py", line 135, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/shaq/Projects/pos-system-git/ui/manager_dashboard.py", line 149, in _build
+    self.results_list = QListWidget()
+                        ^^^^^^^^^^^
+NameError: name 'QListWidget' is not defined. Did you mean: 'QTabWidget'?
+[1]    73518 IOT instruction (core dumped)  python main.py

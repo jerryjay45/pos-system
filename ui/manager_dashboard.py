@@ -16,7 +16,8 @@ from PyQt6.QtWidgets import (
     QFrame, QTabWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QLineEdit, QComboBox, QAbstractItemView,
     QMessageBox, QFormLayout, QScrollArea, QCheckBox,
-    QDoubleSpinBox, QSpinBox, QSizePolicy, QSplitter
+    QDoubleSpinBox, QSpinBox, QSizePolicy, QSplitter,
+    QListWidget, QListWidgetItem
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QDoubleValidator
@@ -96,6 +97,151 @@ _TABLE = """
 """
 _SECTION_LBL = "color: #8b949e; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
 _DIVIDER     = "background: #30363d;"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# LIVE-SEARCH WIDGET  (used by Quick Keys tab)
+# ──────────────────────────────────────────────────────────────────────────────
+
+class _ProductSearchWidget(QWidget):
+    """
+    Google-search-style product picker.
+    Type to filter → results drop down inline → click to confirm.
+    Call currentData() to get the selected product ID (None = unassigned).
+    """
+
+    _INPUT_STYLE = """
+        QLineEdit {
+            background-color: #0d1117; color: #ffffff;
+            border: 1.5px solid #30363d; border-radius: 8px;
+            padding: 0 12px; font-size: 13px;
+        }
+        QLineEdit:focus { border-color: #1a56db; }
+    """
+    _LIST_STYLE = """
+        QListWidget {
+            background-color: #161b22; color: #c9d1d9;
+            border: 1.5px solid #1a56db; border-radius: 0 0 8px 8px;
+            border-top: none; font-size: 12px;
+        }
+        QListWidget::item { padding: 7px 12px; border-bottom: 1px solid #21262d; }
+        QListWidget::item:selected { background-color: #1a56db; color: #ffffff; }
+        QListWidget::item:hover    { background-color: #21262d; }
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._selected_pid  = None
+        self._all_products  = []   # list of (id, name, price)
+        self._build()
+
+    def _build(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.search_input = QLineEdit()
+        self.search_input.setFixedHeight(34)
+        self.search_input.setPlaceholderText("Search products…")
+        self.search_input.setStyleSheet(self._INPUT_STYLE)
+        self.search_input.textChanged.connect(self._on_text_changed)
+        self.search_input.installEventFilter(self)
+
+        self.results_list = QListWidget()
+        self.results_list.setVisible(False)
+        self.results_list.setMaximumHeight(168)   # 5 rows × ~33px
+        self.results_list.setStyleSheet(self._LIST_STYLE)
+        self.results_list.itemClicked.connect(self._on_item_clicked)
+        self.results_list.installEventFilter(self)
+
+        layout.addWidget(self.search_input)
+        layout.addWidget(self.results_list)
+
+    # ── Public API ────────────────────────────────────────────────────
+
+    def set_products(self, products):
+        """Load the full product list: [(id, name, price), …]."""
+        self._all_products = products
+
+    def set_selection(self, pid, display_text):
+        """Pre-select a product by ID (loading saved assignment)."""
+        self._selected_pid = pid
+        self.search_input.blockSignals(True)
+        self.search_input.setText(display_text)
+        self.search_input.blockSignals(False)
+        self.results_list.setVisible(False)
+
+    def clear_selection(self):
+        self._selected_pid = None
+        self.search_input.blockSignals(True)
+        self.search_input.clear()
+        self.search_input.blockSignals(False)
+        self.results_list.setVisible(False)
+
+    def currentData(self):
+        """Return selected product ID, or None."""
+        return self._selected_pid
+
+    # ── Internal logic ────────────────────────────────────────────────
+
+    def _on_text_changed(self, text):
+        self._selected_pid = None   # typing clears the confirmed selection
+        q = text.strip().lower()
+        if not q:
+            self.results_list.setVisible(False)
+            return
+        matches = [
+            (pid, name, price)
+            for pid, name, price in self._all_products
+            if q in name.lower()
+        ][:10]
+        self.results_list.clear()
+        if matches:
+            for pid, name, price in matches:
+                item = QListWidgetItem(f"{name}  —  ${price:.2f}")
+                item.setData(Qt.ItemDataRole.UserRole, (pid, f"{name}  (${price:.2f})"))
+                self.results_list.addItem(item)
+            self.results_list.setVisible(True)
+        else:
+            no = QListWidgetItem("  No products found")
+            no.setForeground(QColor("#484f58"))
+            no.setFlags(no.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            self.results_list.addItem(no)
+            self.results_list.setVisible(True)
+
+    def _on_item_clicked(self, item):
+        data = item.data(Qt.ItemDataRole.UserRole)
+        if not data:
+            return
+        pid, display = data
+        self._selected_pid = pid
+        self.search_input.blockSignals(True)
+        self.search_input.setText(display)
+        self.search_input.blockSignals(False)
+        self.results_list.setVisible(False)
+
+    def eventFilter(self, obj, event):
+        from PyQt6.QtCore import QEvent
+        # Down arrow in search_input → move focus to list
+        if obj is self.search_input and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Down and self.results_list.isVisible():
+                self.results_list.setCurrentRow(0)
+                self.results_list.setFocus()
+                return True
+            if event.key() == Qt.Key.Key_Escape:
+                self.results_list.setVisible(False)
+                return True
+        # Enter/Up in results_list
+        if obj is self.results_list and event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                cur = self.results_list.currentItem()
+                if cur:
+                    self._on_item_clicked(cur)
+                return True
+            if event.key() == Qt.Key.Key_Up and self.results_list.currentRow() == 0:
+                self.search_input.setFocus()
+                return True
+        return super().eventFilter(obj, event)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -197,8 +343,10 @@ class ManagerDashboard(SupervisorDashboard):
         """)
 
         # Manager-only tabs first
-        self.tabs.addTab(self._build_users_tab(),    "👥  Users")
-        self.tabs.addTab(self._build_business_tab(), "🏢  Business")
+        self.tabs.addTab(self._build_users_tab(),      "👥  Users")
+        self.tabs.addTab(self._build_business_tab(),   "🏢  Business")
+        self.tabs.addTab(self._build_quickkeys_tab(),  "⌨  Quick Keys")
+        self.tabs.addTab(self._build_sync_tab(),       "🔄  PostgreSQL")
 
         # Inherited supervisor tabs
         self.tabs.addTab(self._build_products_tab(),     "Products")
@@ -1277,3 +1425,394 @@ class ManagerDashboard(SupervisorDashboard):
         except Exception as e:
             self.grp_feedback.setStyleSheet("color: #f87171; font-size: 11px;")
             self.grp_feedback.setText(str(e))
+
+    # ================================================================
+    # QUICK KEYS TAB
+    # ================================================================
+
+    def _build_quickkeys_tab(self):
+        w = QWidget()
+        w.setStyleSheet("background-color: #161b22;")
+        outer = QVBoxLayout(w)
+        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setSpacing(12)
+
+        # Header
+        hdr = QHBoxLayout()
+        desc = QLabel(
+            "Assign a product to each F-key (F1–F8).  "
+            "Start typing a product name to search — select from the results."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #8b949e; font-size: 13px;")
+        ref_btn = QPushButton("↻  Refresh")
+        ref_btn.setFixedHeight(32)
+        ref_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        ref_btn.setStyleSheet(_BTN_BLUE + "QPushButton { border-radius: 6px; }")
+        ref_btn.clicked.connect(self._qk_load_products)
+        hdr.addWidget(desc, stretch=1)
+        hdr.addWidget(ref_btn)
+        outer.addLayout(hdr)
+
+        # Grid of 8 rows  — each row: F-label + _ProductSearchWidget
+        grid = QFrame()
+        grid.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        gl = QVBoxLayout(grid)
+        gl.setContentsMargins(20, 16, 20, 16)
+        gl.setSpacing(10)
+
+        self._qk_widgets = []   # list of _ProductSearchWidget, index = key_number-1
+        for i in range(1, 9):
+            row_w = QHBoxLayout()
+
+            key_lbl = QLabel(f"F{i}")
+            key_lbl.setFixedWidth(38)
+            key_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            key_lbl.setStyleSheet(
+                "color: #ffffff; font-size: 14px; font-weight: 700;"
+                "background: #21262d; border: 1px solid #30363d;"
+                "border-radius: 5px; padding: 4px 0;"
+            )
+
+            sw = _ProductSearchWidget()
+            sw.setProperty("key_number", i)
+            self._qk_widgets.append(sw)
+
+            row_w.addWidget(key_lbl)
+            row_w.addWidget(sw, stretch=1)
+            gl.addLayout(row_w)
+
+        outer.addWidget(grid)
+
+        self.qk_feedback = QLabel("")
+        self.qk_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+
+        save_btn = QPushButton("💾  Save Quick Keys")
+        save_btn.setFixedHeight(36)
+        save_btn.setFixedWidth(200)
+        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_btn.setStyleSheet(_BTN_BLUE)
+        save_btn.clicked.connect(self._qk_save)
+
+        outer.addWidget(self.qk_feedback)
+        outer.addWidget(save_btn)
+        outer.addStretch()
+
+        self._qk_load_products()
+        return w
+
+    def _qk_load_products(self):
+        """Load the product list into all 8 search widgets and restore saved assignments."""
+        try:
+            conn = get_products_conn()
+            products = conn.execute(
+                "SELECT id, name, selling_price FROM products ORDER BY name"
+            ).fetchall()
+            assigned = {
+                r[0]: r[1]
+                for r in conn.execute(
+                    "SELECT key_number, product_id FROM quick_keys"
+                ).fetchall()
+            }
+            # Build a name lookup for display
+            name_map = {pid: (name, price) for pid, name, price in products}
+            conn.close()
+        except Exception:
+            products = []
+            assigned = {}
+            name_map = {}
+
+        product_tuples = [(pid, name, price) for pid, name, price in products]
+
+        for sw in self._qk_widgets:
+            kn = sw.property("key_number")
+            sw.set_products(product_tuples)
+            pid = assigned.get(kn)
+            if pid and pid in name_map:
+                name, price = name_map[pid]
+                sw.set_selection(pid, f"{name}  (${price:.2f})")
+            else:
+                sw.clear_selection()
+
+    def _qk_save(self):
+        try:
+            conn = get_products_conn()
+            conn.execute("DELETE FROM quick_keys")
+            for sw in self._qk_widgets:
+                pid = sw.currentData()
+                if pid is not None:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO quick_keys (key_number, product_id) VALUES (?,?)",
+                        (sw.property("key_number"), pid)
+                    )
+            conn.commit()
+            conn.close()
+            self.qk_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+            self.qk_feedback.setText("✓ Quick keys saved. Cashiers will see changes on next login.")
+        except Exception as e:
+            self.qk_feedback.setStyleSheet("color: #f87171; font-size: 11px;")
+            self.qk_feedback.setText(str(e))
+
+    # ================================================================
+    # POSTGRESQL SYNC TAB
+    # ================================================================
+
+    def _build_sync_tab(self):
+        w = QWidget()
+        w.setStyleSheet("background-color: #161b22;")
+        outer = QVBoxLayout(w)
+        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setSpacing(12)
+
+        # ── Connection settings ──────────────────────────────────────
+        cfg_frame = QFrame()
+        cfg_frame.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        cfg_l = QVBoxLayout(cfg_frame)
+        cfg_l.setContentsMargins(20, 16, 20, 16)
+        cfg_l.setSpacing(10)
+
+        cfg_title = QLabel("POSTGRESQL CONNECTION")
+        cfg_title.setStyleSheet(_SECTION_LBL)
+        cfg_l.addWidget(cfg_title)
+        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine); sep.setStyleSheet(_DIVIDER)
+        cfg_l.addWidget(sep)
+
+        self.sync_enabled = QCheckBox("Enable PostgreSQL sync")
+        self.sync_enabled.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+        cfg_l.addWidget(self.sync_enabled)
+
+        def cfg_row(label, widget):
+            r = QHBoxLayout()
+            lbl = QLabel(label)
+            lbl.setFixedWidth(100)
+            lbl.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+            r.addWidget(lbl); r.addWidget(widget, stretch=1)
+            return r
+
+        self.sync_host = QLineEdit(); self.sync_host.setFixedHeight(32); self.sync_host.setStyleSheet(_INPUT)
+        self.sync_port = QLineEdit(); self.sync_port.setFixedHeight(32); self.sync_port.setStyleSheet(_INPUT)
+        self.sync_db   = QLineEdit(); self.sync_db.setFixedHeight(32);   self.sync_db.setStyleSheet(_INPUT)
+        self.sync_user = QLineEdit(); self.sync_user.setFixedHeight(32); self.sync_user.setStyleSheet(_INPUT)
+        self.sync_pw   = QLineEdit(); self.sync_pw.setFixedHeight(32);   self.sync_pw.setStyleSheet(_INPUT)
+        self.sync_pw.setEchoMode(QLineEdit.EchoMode.Password)
+
+        cfg_l.addLayout(cfg_row("Host:",     self.sync_host))
+        cfg_l.addLayout(cfg_row("Port:",     self.sync_port))
+        cfg_l.addLayout(cfg_row("Database:", self.sync_db))
+        cfg_l.addLayout(cfg_row("User:",     self.sync_user))
+        cfg_l.addLayout(cfg_row("Password:", self.sync_pw))
+
+        cfg_btn_row = QHBoxLayout()
+        save_cfg_btn = QPushButton("💾  Save Config")
+        save_cfg_btn.setFixedHeight(32); save_cfg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_cfg_btn.setStyleSheet(_BTN_BLUE + "QPushButton { border-radius: 6px; }")
+        save_cfg_btn.clicked.connect(self._sync_save_config)
+        test_btn = QPushButton("🔌  Test Connection")
+        test_btn.setFixedHeight(32); test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        test_btn.setStyleSheet(_BTN_BLUE + "QPushButton { border-radius: 6px; }")
+        test_btn.clicked.connect(self._sync_test)
+        cfg_btn_row.addWidget(save_cfg_btn); cfg_btn_row.addWidget(test_btn); cfg_btn_row.addStretch()
+        cfg_l.addLayout(cfg_btn_row)
+
+        self.sync_cfg_status = QLabel("")
+        self.sync_cfg_status.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self.sync_cfg_status.setWordWrap(True)
+        cfg_l.addWidget(self.sync_cfg_status)
+
+        # ── Sync actions ─────────────────────────────────────────────
+        act_frame = QFrame()
+        act_frame.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        act_l = QVBoxLayout(act_frame)
+        act_l.setContentsMargins(20, 16, 20, 16)
+        act_l.setSpacing(10)
+
+        act_title = QLabel("SYNC ACTIONS")
+        act_title.setStyleSheet(_SECTION_LBL)
+        act_l.addWidget(act_title)
+        sep2 = QFrame(); sep2.setFrameShape(QFrame.Shape.HLine); sep2.setStyleSheet(_DIVIDER)
+        act_l.addWidget(sep2)
+
+        desc = QLabel(
+            "Push sends all local data to PostgreSQL.\n"
+            "Pull brings remote products/users/settings to this terminal.\n"
+            "Transaction history is never overwritten on pull."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #8b949e; font-size: 12px;")
+        act_l.addWidget(desc)
+
+        act_btn_row = QHBoxLayout()
+        schema_btn = QPushButton("🔧  Mirror Schema")
+        push_btn   = QPushButton("⬆  Push to Remote")
+        pull_btn   = QPushButton("⬇  Pull from Remote")
+        sync_btn   = QPushButton("🔄  Full Sync")
+
+        for b, slot, bg in [
+            (schema_btn, self._sync_schema,  "#21262d"),
+            (push_btn,   self._sync_push,    "#1a56db"),
+            (pull_btn,   self._sync_pull,    "#14532d"),
+            (sync_btn,   self._sync_full,    "#7c3aed"),
+        ]:
+            b.setFixedHeight(34)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(f"QPushButton {{ background: {bg}; color: #fff; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; padding: 0 12px; }} QPushButton:hover {{ opacity: 0.85; }}")
+            b.clicked.connect(slot)
+            act_btn_row.addWidget(b)
+
+        act_l.addLayout(act_btn_row)
+
+        self.sync_result = QLabel("")
+        self.sync_result.setWordWrap(True)
+        self.sync_result.setStyleSheet("color: #c9d1d9; font-size: 11px; font-family: monospace;")
+        act_l.addWidget(self.sync_result)
+
+        # ── Sync log ──────────────────────────────────────────────────
+        log_frame = QFrame()
+        log_frame.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        log_l = QVBoxLayout(log_frame)
+        log_l.setContentsMargins(12, 12, 12, 12)
+        log_l.setSpacing(6)
+
+        log_hdr = QHBoxLayout()
+        log_title = QLabel("SYNC LOG")
+        log_title.setStyleSheet(_SECTION_LBL)
+        ref_log = QPushButton("↻"); ref_log.setFixedSize(28, 24)
+        ref_log.setStyleSheet(_BTN_BLUE + "QPushButton { border-radius: 4px; font-size: 12px; padding: 0; }")
+        ref_log.clicked.connect(self._sync_load_log)
+        log_hdr.addWidget(log_title); log_hdr.addStretch(); log_hdr.addWidget(ref_log)
+        log_l.addLayout(log_hdr)
+
+        self.sync_log_table = QTableWidget()
+        self.sync_log_table.setColumnCount(5)
+        self.sync_log_table.setHorizontalHeaderLabels(["Time", "Event", "Table", "Rows", "Message"])
+        self.sync_log_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.sync_log_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.sync_log_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.sync_log_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.sync_log_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self.sync_log_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.sync_log_table.verticalHeader().setVisible(False)
+        self.sync_log_table.setShowGrid(False)
+        self.sync_log_table.setFixedHeight(160)
+        self.sync_log_table.setStyleSheet(_TABLE)
+        log_l.addWidget(self.sync_log_table)
+
+        outer.addWidget(cfg_frame)
+        outer.addWidget(act_frame)
+        outer.addWidget(log_frame)
+        outer.addStretch()
+
+        self._sync_load_config()
+        self._sync_load_log()
+        return w
+
+    # ── Sync helpers ───────────────────────────────────────────────────
+
+    def _sync_load_config(self):
+        """Populate fields from config.py values."""
+        try:
+            import importlib, config as _cfg
+            self.sync_enabled.setChecked(bool(_cfg.USE_POSTGRES))
+            c = _cfg.POSTGRES_CONFIG
+            self.sync_host.setText(str(c.get("host", "localhost")))
+            self.sync_port.setText(str(c.get("port", 5432)))
+            self.sync_db.setText(str(c.get("database", "pos_db")))
+            self.sync_user.setText(str(c.get("user", "pos_user")))
+            self.sync_pw.setText(str(c.get("password", "")))
+        except Exception:
+            pass
+
+    def _sync_save_config(self):
+        """Write updated connection settings back to config.py."""
+        try:
+            import config as _cfg
+            from pathlib import Path
+            cfg_path = Path(_cfg.__file__)
+            text = cfg_path.read_text()
+
+            def _replace(text, key, value):
+                import re
+                if isinstance(value, str):
+                    return re.sub(rf'("{key}":\s*)("[^"]*")', rf'\g<1>"{value}"', text)
+                else:
+                    return re.sub(rf'("{key}":\s*)(\d+)', rf'\g<1>{value}', text)
+
+            use = "True" if self.sync_enabled.isChecked() else "False"
+            text = re.sub(r'USE_POSTGRES\s*=\s*(True|False)', f'USE_POSTGRES = {use}', text)
+            text = _replace(text, "host",     self.sync_host.text().strip())
+            text = _replace(text, "database", self.sync_db.text().strip())
+            text = _replace(text, "user",     self.sync_user.text().strip())
+            text = _replace(text, "password", self.sync_pw.text())
+            try:
+                port = int(self.sync_port.text().strip())
+                text = _replace(text, "port", port)
+            except ValueError:
+                pass
+            cfg_path.write_text(text)
+            self.sync_cfg_status.setStyleSheet("color: #3dd68c; font-size: 11px;")
+            self.sync_cfg_status.setText("✓ Config saved. Restart required for USE_POSTGRES to take effect.")
+        except Exception as e:
+            self.sync_cfg_status.setStyleSheet("color: #f87171; font-size: 11px;")
+            self.sync_cfg_status.setText(f"Save failed: {e}")
+
+    def _sync_run(self, action, label):
+        """Generic runner: applies temp config override, runs action, shows result."""
+        import re
+        # Temporarily patch the in-memory config with form values
+        try:
+            import config as _cfg
+            _cfg.USE_POSTGRES = self.sync_enabled.isChecked()
+            _cfg.POSTGRES_CONFIG["host"]     = self.sync_host.text().strip()
+            _cfg.POSTGRES_CONFIG["port"]     = int(self.sync_port.text().strip() or "5432")
+            _cfg.POSTGRES_CONFIG["database"] = self.sync_db.text().strip()
+            _cfg.POSTGRES_CONFIG["user"]     = self.sync_user.text().strip()
+            _cfg.POSTGRES_CONFIG["password"] = self.sync_pw.text()
+        except Exception:
+            pass
+
+        from db.sync import SyncManager
+        sm  = SyncManager()
+        ok, msg = action(sm)
+        color = "#3dd68c" if ok else "#f87171"
+        self.sync_result.setStyleSheet(f"color: {color}; font-size: 11px; font-family: monospace;")
+        self.sync_result.setText(msg)
+        self._sync_load_log()
+
+    def _sync_test(self):
+        self._sync_run(lambda sm: sm.test_connection(), "Test")
+
+    def _sync_schema(self):
+        self._sync_run(lambda sm: sm.ensure_schema(), "Mirror Schema")
+
+    def _sync_push(self):
+        self._sync_run(lambda sm: sm.push_all(), "Push")
+
+    def _sync_pull(self):
+        self._sync_run(lambda sm: sm.pull_all(), "Pull")
+
+    def _sync_full(self):
+        self._sync_run(lambda sm: sm.sync(), "Full Sync")
+
+    def _sync_load_log(self):
+        try:
+            from db.sync import SyncManager
+            entries = SyncManager().get_log(50)
+        except Exception:
+            entries = []
+        tbl = self.sync_log_table
+        tbl.setRowCount(len(entries))
+        ec = {"push": "#4493f8", "pull": "#3dd68c", "error": "#f87171",
+              "test": "#a78bfa", "sync": "#f59e0b"}
+        for i, e in enumerate(entries):
+            ti = QTableWidgetItem(e["time"] or "")
+            ti.setForeground(QColor("#8b949e"))
+            ev = QTableWidgetItem(e["event"] or "")
+            ev.setForeground(QColor(ec.get(e["event"], "#c9d1d9")))
+            tb = QTableWidgetItem(e["table"] or "")
+            ri = QTableWidgetItem(str(e["rows"] or ""))
+            ri.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            mi = QTableWidgetItem(e["message"] or "")
+            mi.setForeground(QColor("#8b949e"))
+            for col, item in enumerate([ti, ev, tb, ri, mi]):
+                tbl.setItem(i, col, item)
+            tbl.setRowHeight(i, 28)
