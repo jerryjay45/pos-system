@@ -349,10 +349,11 @@ class ManagerDashboard(SupervisorDashboard):
         self.tabs.addTab(self._build_sync_tab(),       "🔄  PostgreSQL")
 
         # Inherited supervisor tabs
-        self.tabs.addTab(self._build_products_tab(),     "Products")
-        self.tabs.addTab(self._build_reports_tab(),      "Reports")
-        self.tabs.addTab(self._build_transactions_tab(), "Transactions")
-        self.tabs.addTab(self._build_void_tab(),         "Void / Refund")
+        self.tabs.addTab(self._build_products_tab(),     "🏷  Products")
+        self.tabs.addTab(self._build_reports_tab(),      "📊  Reports")
+        self.tabs.addTab(self._build_transactions_tab(), "🧾  Transactions")
+        self.tabs.addTab(self._build_void_tab(),         "↩  Void / Refund")
+        self.tabs.addTab(self._build_labels_tab(),       "🏷  Labels")
 
         self.tabs.setCurrentIndex(0)
         return self.tabs

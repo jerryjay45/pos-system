@@ -45,6 +45,9 @@ class CashierDashboard(BaseWindow):
         self.carts       = [[] for _ in range(self.MAX_CARTS)]
         self.active_cart = 0
 
+        # Track last completed transaction for reprint
+        self.last_transaction_id = None
+
         self.setWindowTitle("POS System — Cashier")
         self.setMinimumSize(1280, 720)
         self._center_on_screen()
@@ -337,6 +340,23 @@ class CashierDashboard(BaseWindow):
             setattr(self, f"{attr}_frame", f)
             return f
 
+        # Reprint last receipt button — shown only after first transaction
+        self.reprint_btn = QPushButton("🖨  Reprint Last Receipt")
+        self.reprint_btn.setFixedHeight(34)
+        self.reprint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.reprint_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #21262d; color: #8b949e;
+                border: 1px solid #30363d; border-radius: 6px;
+                font-size: 11px; font-weight: 600;
+                margin: 6px 8px 0 8px;
+            }
+            QPushButton:hover { background-color: #30363d; color: #ffffff; }
+            QPushButton:pressed { background-color: #1a56db; color: #ffffff; }
+        """)
+        self.reprint_btn.clicked.connect(self._reprint_last_receipt)
+        self.reprint_btn.setVisible(False)
+
         # Change display — shown after each transaction, hidden initially
         change_frame = QFrame()
         change_frame.setStyleSheet("background-color: #0d1117; border: none;")
@@ -358,6 +378,7 @@ class CashierDashboard(BaseWindow):
         change_frame.setVisible(False)
         self.change_display_frame = change_frame
 
+        layout.addWidget(self.reprint_btn)
         layout.addWidget(change_frame)
         layout.addWidget(block("Subtotal", "subtotal_label"))
         layout.addWidget(block(f"Gct ({self.gct_rate:.2f}%)", "gct_label"))
@@ -639,6 +660,10 @@ class CashierDashboard(BaseWindow):
         if dialog.exec():
             # Show change due on the dashboard for the customer to see
             self._show_change(dialog.change_given)
+            # Store transaction ID for reprint
+            if hasattr(dialog, "last_transaction_id") and dialog.last_transaction_id:
+                self.last_transaction_id = dialog.last_transaction_id
+                self.reprint_btn.setVisible(True)
             self._clear_cart()
             self.search_input.setFocus()
 
@@ -646,6 +671,17 @@ class CashierDashboard(BaseWindow):
         """Display the change from the last transaction above the subtotal."""
         self.change_display.setText(f"${change:.2f}")
         self.change_display_frame.setVisible(True)
+
+    def _reprint_last_receipt(self):
+        """Reprint the most recent receipt for this cashier."""
+        if not self.last_transaction_id:
+            return
+        try:
+            from printing.print_manager import reprint_receipt
+            reprint_receipt(self.last_transaction_id, parent=self)
+        except Exception as e:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Reprint Failed", str(e))
 
     def _void_transaction(self):
         if not self.cart:

@@ -90,12 +90,23 @@ def create_products_tables():
             price          REAL    NOT NULL DEFAULT 0.0,
             alias_id       INTEGER REFERENCES aliases(id) ON UPDATE CASCADE ON DELETE SET NULL,
             group_id       INTEGER REFERENCES product_groups(id) ON DELETE SET NULL,
-            discount_level INTEGER REFERENCES discount_levels(id) ON DELETE SET NULL,
+            discount_level  INTEGER REFERENCES discount_levels(id) ON DELETE SET NULL,
+            discount_level_2 INTEGER REFERENCES discount_levels(id) ON DELETE SET NULL,
             is_case        INTEGER NOT NULL DEFAULT 0,  -- 0 = single, 1 = case
             case_quantity  INTEGER DEFAULT 1,
             gct_applicable INTEGER NOT NULL DEFAULT 1   -- 1 = yes, 0 = exempt
         )
     """)
+
+    # Migration: add discount_level_2 if upgrading from old schema
+    existing_prod_cols = {r[1] for r in cursor.execute(
+        "PRAGMA table_info(products)"
+    ).fetchall()}
+    if "discount_level_2" not in existing_prod_cols:
+        cursor.execute(
+            "ALTER TABLE products ADD COLUMN "
+            "discount_level_2 INTEGER REFERENCES discount_levels(id) ON DELETE SET NULL"
+        )
 
     # Quick keys — F1-F8 shortcuts assigned by manager
     cursor.execute("""

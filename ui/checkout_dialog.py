@@ -33,6 +33,7 @@ class CheckoutDialog(QDialog):
         self.discount    = 0.0
         self.total       = round(self.subtotal + self.gct_total - self.discount, 2)
         self.change_given = 0.0  # set after payment confirmed, read by dashboard
+        self.last_transaction_id = None  # set after save, read by dashboard for reprint
 
         self.setWindowTitle("Checkout")
         self.setFixedSize(400, 480)
@@ -329,6 +330,7 @@ class CheckoutDialog(QDialog):
                 cash_tendered, change
             ))
             transaction_id = cursor.lastrowid
+            self.last_transaction_id = transaction_id  # expose for reprint
 
             # Insert each cart item with snapshots
             for item in self.cart:

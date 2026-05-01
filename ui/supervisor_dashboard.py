@@ -120,10 +120,10 @@ class SupervisorDashboard(BaseWindow):
             QTabBar::tab:hover { background-color: #30363d; color: #ffffff; }
         """)
 
-        self.tabs.addTab(self._build_products_tab(),      "Products")
-        self.tabs.addTab(self._build_reports_tab(),       "Reports")
-        self.tabs.addTab(self._build_transactions_tab(),  "Transactions")
-        self.tabs.addTab(self._build_void_tab(),          "Void / Refund")
+        self.tabs.addTab(self._build_products_tab(),      "📦  Products")
+        self.tabs.addTab(self._build_reports_tab(),       "📊  Reports")
+        self.tabs.addTab(self._build_transactions_tab(),  "🧾  Transactions")
+        self.tabs.addTab(self._build_void_tab(),          "↩  Void / Refund")
         self.tabs.addTab(self._build_labels_tab(),        "🏷  Labels")
         self.tabs.setCurrentIndex(0)
         return self.tabs
@@ -474,7 +474,7 @@ class SupervisorDashboard(BaseWindow):
             for r in rows
         ]
         self._rpt_populate_session_list(self._rpt_all_sessions)
-        self._rpt_update_cards()
+        # Cards stay at "—" until the user clicks a session row
 
     def _rpt_populate_session_list(self, sessions):
         tbl = self.rpt_session_list
@@ -1726,12 +1726,19 @@ class SupervisorDashboard(BaseWindow):
         self._populate_groups()
         self.f_group.currentIndexChanged.connect(self._calc_selling_price)
 
-        # Discount level dropdown
-        disc_lbl = QLabel("Discount Level")
+        # Discount level 1 dropdown
+        disc_lbl = QLabel("Discount Level 1")
         disc_lbl.setStyleSheet("color: #8b949e; font-size: 11px; text-transform: uppercase;")
         self.f_discount = QComboBox()
         self.f_discount.setStyleSheet(self._combo_style())
         self._populate_discount_levels()
+
+        # Discount level 2 dropdown
+        disc2_lbl = QLabel("Discount Level 2  (higher qty)")
+        disc2_lbl.setStyleSheet("color: #8b949e; font-size: 11px; text-transform: uppercase;")
+        self.f_discount2 = QComboBox()
+        self.f_discount2.setStyleSheet(self._combo_style())
+        self._populate_discount_levels_2()
 
         # Divider
         div = QFrame()
@@ -1830,6 +1837,8 @@ class SupervisorDashboard(BaseWindow):
         layout.addWidget(self.f_group)
         layout.addWidget(disc_lbl)
         layout.addWidget(self.f_discount)
+        layout.addWidget(disc2_lbl)
+        layout.addWidget(self.f_discount2)
         layout.addWidget(div)
         layout.addWidget(self.t_gct)
         layout.addWidget(self.t_case)
@@ -2271,6 +2280,7 @@ class SupervisorDashboard(BaseWindow):
         self.case_box.setVisible(False)
         self.f_group.setCurrentIndex(0)
         self.f_discount.setCurrentIndex(0)
+        self.f_discount2.setCurrentIndex(0)
 
     def _edit_product(self, product_id):
         """Load product data into the form for editing."""
@@ -2278,7 +2288,7 @@ class SupervisorDashboard(BaseWindow):
         cursor = conn.cursor()
         cursor.execute("""
             SELECT p.id, p.barcode, p.brand, p.name, p.cost, p.selling_price,
-                   a.alias_name, p.group_id, p.discount_level,
+                   a.alias_name, p.group_id, p.discount_level, p.discount_level_2,
                    p.gct_applicable, p.is_case, p.case_quantity
             FROM products p
             LEFT JOIN aliases a ON a.id = p.alias_id
@@ -2289,7 +2299,7 @@ class SupervisorDashboard(BaseWindow):
         if not row:
             return
 
-        pid, barcode, brand, name, cost, selling_price, alias, group_id, disc_id, gct, is_case, case_qty = row
+        pid, barcode, brand, name, cost, selling_price, alias, group_id, disc_id, disc_id2, gct, is_case, case_qty = row
         self.editing_product_id = pid
         self.form_title.setText("✏  Edit Product")
 
@@ -2314,6 +2324,11 @@ class SupervisorDashboard(BaseWindow):
         idx = self.f_discount.findData(disc_id)
         if idx >= 0:
             self.f_discount.setCurrentIndex(idx)
+
+        # Set discount level 2 combo
+        idx2 = self.f_discount2.findData(disc_id2)
+        if idx2 >= 0:
+            self.f_discount2.setCurrentIndex(idx2)
 
     def _save_product(self):
         """Save new or edited product to the database."""
@@ -2358,6 +2373,7 @@ class SupervisorDashboard(BaseWindow):
         # Cases cannot have a group — use group_id directly from combo data
         group_id_direct = None if is_case else self.f_group.currentData()
         disc_id    = self.f_discount.currentData()
+        disc_id2   = self.f_discount2.currentData()
 
         try:
             conn   = get_products_conn()
@@ -2399,11 +2415,11 @@ class SupervisorDashboard(BaseWindow):
                 cursor.execute("""
                     UPDATE products SET
                         barcode = ?, brand = ?, name = ?, cost = ?, selling_price = ?,
-                        alias_id = ?, group_id = ?, discount_level = ?,
+                        alias_id = ?, group_id = ?, discount_level = ?, discount_level_2 = ?,
                         gct_applicable = ?, is_case = ?, case_quantity = ?
                     WHERE id = ?
                 """, (barcode, brand, name, cost, selling_price, alias_id, group_id,
-                      disc_id, gct, is_case, case_qty,
+                      disc_id, disc_id2, gct, is_case, case_qty,
                       self.editing_product_id))
 
                 if alias_id:
@@ -2413,10 +2429,10 @@ class SupervisorDashboard(BaseWindow):
                 cursor.execute("""
                     INSERT INTO products
                         (barcode, brand, name, cost, selling_price, alias_id, group_id,
-                         discount_level, gct_applicable, is_case, case_quantity)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         discount_level, discount_level_2, gct_applicable, is_case, case_quantity)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (barcode, brand, name, cost, selling_price, alias_id, group_id,
-                      disc_id, gct, is_case, case_qty))
+                      disc_id, disc_id2, gct, is_case, case_qty))
 
             conn.commit()
 
@@ -2520,6 +2536,15 @@ class SupervisorDashboard(BaseWindow):
         cursor.execute("SELECT id, level_name FROM discount_levels ORDER BY id")
         for did, dname in cursor.fetchall():
             self.f_discount.addItem(dname, did)
+        conn.close()
+
+    def _populate_discount_levels_2(self):
+        self.f_discount2.addItem("— None —", None)
+        conn   = get_products_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, level_name FROM discount_levels ORDER BY id")
+        for did, dname in cursor.fetchall():
+            self.f_discount2.addItem(dname, did)
         conn.close()
 
     # ----------------------------------------------------------------
