@@ -295,6 +295,7 @@ class SupervisorDashboard(BaseWindow):
         self.rpt_print_btn.setStyleSheet(_btn_outline)
         self.rpt_print_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.rpt_print_btn.setEnabled(False)
+        self.rpt_print_btn.clicked.connect(self._rpt_print_session)
 
         session_bar.addWidget(self.rpt_session_header)
         session_bar.addStretch()
@@ -548,6 +549,19 @@ class SupervisorDashboard(BaseWindow):
         self._rpt_load_cashiers()
         if self._rpt_selected_cashier_id is not None:
             self._rpt_load_sessions(self._rpt_selected_cashier_id)
+
+    def _rpt_print_session(self):
+        """Print summary for the selected session."""
+        if not hasattr(self, "_rpt_selected_session_id") or not self._rpt_selected_session_id:
+            QMessageBox.information(self, "No Session", "Please select a session first.")
+            return
+        try:
+            from printing.print_manager import print_session
+            ok, err = print_session(self._rpt_selected_session_id, parent=self)
+            if not ok and err and err != "Cancelled":
+                QMessageBox.warning(self, "Print Failed", err)
+        except Exception as e:
+            QMessageBox.critical(self, "Print Error", str(e))
 
     def _rpt_open_session(self):
         # Must have a cashier selected
@@ -931,17 +945,19 @@ class SupervisorDashboard(BaseWindow):
         self.tx_reprint_btn.setEnabled(True)
 
     def _tx_reprint(self):
-        """Reprint the selected receipt. Wired to printer when receipt printing is implemented."""
+        """Reprint the selected receipt via the print manager."""
         row = self.tx_table.currentRow()
         item = self.tx_table.item(row, 0)
         if not item:
             return
         tx_id = item.data(Qt.ItemDataRole.UserRole)
-        QMessageBox.information(
-            self, "Reprint Receipt",
-            f"Reprint for Receipt #{tx_id} will be sent to the printer.\n"
-            "(Receipt printing not yet implemented — wire to printer module here.)"
-        )
+        try:
+            from printing.print_manager import reprint_receipt
+            ok, err = reprint_receipt(tx_id, parent=self)
+            if not ok and err and err != "Cancelled":
+                QMessageBox.warning(self, "Reprint Failed", err)
+        except Exception as e:
+            QMessageBox.critical(self, "Reprint Error", str(e))
 
     # ================================================================
     # VOID / REFUND TAB — stub
@@ -1449,6 +1465,12 @@ class SupervisorDashboard(BaseWindow):
             self.vr_status_banner.setStyleSheet("color: #f87171; font-size: 12px; font-weight: 600;")
             self.vr_status_banner.setVisible(True)
             self._vr_load(status_filter="completed" if self.vr_status_filter.currentIndex() == 0 else "")
+            # Print void receipt
+            try:
+                from printing.print_manager import print_void
+                print_void(self._vr_selected_tx_id, reason, self.full_name, parent=self)
+            except Exception:
+                pass
 
         except Exception as e:
             QMessageBox.critical(self, "Void Failed", str(e))
@@ -1533,6 +1555,19 @@ class SupervisorDashboard(BaseWindow):
             self.vr_status_banner.setStyleSheet("color: #fcd34d; font-size: 12px; font-weight: 600;")
             self.vr_status_banner.setVisible(True)
             self._vr_load(status_filter="completed" if self.vr_status_filter.currentIndex() == 0 else "")
+            # Print refund receipt
+            try:
+                from printing.print_manager import print_refund
+                refund_dicts = [
+                    {"name": it[0], "qty": it[2], "unit_price": it[3], "line_total": it[5]}
+                    for it in refund_items
+                ]
+                print_refund(
+                    self._vr_selected_tx_id, refund_dicts, refund_total,
+                    reason, self.full_name, parent=self
+                )
+            except Exception:
+                pass
 
         except Exception as e:
             QMessageBox.critical(self, "Refund Failed", str(e))
@@ -2501,13 +2536,34 @@ class SupervisorDashboard(BaseWindow):
     # LABELS TAB
     # ================================================================
 
-    # Label size presets: (label_w_mm, label_h_mm, display_name)
+    # ── Page/label size presets ──────────────────────────────────────
+    # Format: (w_mm, h_mm, display_name, is_page_mode)
+    # is_page_mode=True  → multiple labels on standard paper (A4/Letter/Legal/POS roll)
+    # is_page_mode=False → single label page (thermal label printer)
     _LABEL_SIZES = [
-        (50,  30,  "50 × 30 mm  (standard shelf)"),
-        (70,  40,  "70 × 40 mm  (large shelf)"),
-        (100, 50,  "100 × 50 mm  (case label)"),
-        (38,  21,  "38 × 21 mm  (small price tag)"),
+        # ── Label/tag sizes (label printer) ──────────────────────────
+        (38,  21,  "38 × 21 mm  (small price tag)", False),
+        (50,  30,  "50 × 30 mm  (standard shelf)",  False),
+        (70,  40,  "70 × 40 mm  (large shelf)",     False),
+        (100, 50,  "100 × 50 mm  (case label)",     False),
+        # ── Page layouts (normal/POS roll printer) ───────────────────
+        ("A4",     None, "A4  (210 × 297 mm)",      True),
+        ("Letter", None, "Letter  (216 × 279 mm)",  True),
+        ("Legal",  None, "Legal  (216 × 356 mm)",   True),
+        ("POS55",  None, "POS Roll  55 mm wide",    True),
+        ("POS57",  None, "POS Roll  57 mm wide",    True),
+        ("POS76",  None, "POS Roll  76 mm wide",    True),
     ]
+
+    # Labels per row for each page format (depends on label size + page width)
+    _PAGE_COLS = {
+        "A4":     3,   # 3 × 50mm labels across 210mm with margins
+        "Letter": 3,
+        "Legal":  3,
+        "POS55":  1,
+        "POS57":  1,
+        "POS76":  1,
+    }
 
     def _build_labels_tab(self):
         w = QWidget()
@@ -2516,11 +2572,11 @@ class SupervisorDashboard(BaseWindow):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(12)
 
-        root.addWidget(self._build_label_left(),    stretch=1)
-        root.addWidget(self._build_label_right(),   stretch=0)
+        root.addWidget(self._build_label_left(),  stretch=1)
+        root.addWidget(self._build_label_right(), stretch=0)
         return w
 
-    # ── Left: product search + list ──────────────────────────────────
+    # ── Left: product table with checkboxes ──────────────────────────
     def _build_label_left(self):
         panel = QFrame()
         panel.setStyleSheet("background: transparent;")
@@ -2528,7 +2584,8 @@ class SupervisorDashboard(BaseWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        # Search bar
+        # Toolbar row
+        toolbar = QHBoxLayout()
         self.label_search = QLineEdit()
         self.label_search.setPlaceholderText("🔍  Search product by name, barcode or brand…")
         self.label_search.setFixedHeight(36)
@@ -2542,54 +2599,90 @@ class SupervisorDashboard(BaseWindow):
         """)
         self.label_search.textChanged.connect(self._label_filter_products)
 
-        # Product list
-        self.label_product_list = QListWidget()
-        self.label_product_list.setStyleSheet("""
-            QListWidget {
-                background-color: #0d1117; color: #c9d1d9;
-                border: none; border-radius: 8px; font-size: 13px;
+        sel_all_btn = QPushButton("Select All")
+        sel_all_btn.setFixedHeight(32)
+        sel_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        sel_all_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent; color: #8b949e;
+                border: 1px solid #30363d; border-radius: 16px;
+                font-size: 11px; padding: 0 12px;
             }
-            QListWidget::item {
-                padding: 10px 14px;
+            QPushButton:hover { color: #ffffff; border-color: #1a56db; }
+        """)
+        sel_all_btn.clicked.connect(self._label_select_all)
+
+        clr_btn = QPushButton("Clear")
+        clr_btn.setFixedHeight(32)
+        clr_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        clr_btn.setStyleSheet(sel_all_btn.styleSheet())
+        clr_btn.clicked.connect(self._label_clear_selection)
+
+        self.label_sel_count = QLabel("0 selected")
+        self.label_sel_count.setStyleSheet("color: #8b949e; font-size: 11px;")
+
+        toolbar.addWidget(self.label_search, stretch=1)
+        toolbar.addWidget(sel_all_btn)
+        toolbar.addWidget(clr_btn)
+        toolbar.addWidget(self.label_sel_count)
+
+        # Product table with checkboxes
+        self.label_product_table = QTableWidget()
+        self.label_product_table.setColumnCount(5)
+        self.label_product_table.setHorizontalHeaderLabels(["☑", "Name", "Brand", "Barcode", "Price"])
+        self.label_product_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.label_product_table.setColumnWidth(0, 36)
+        self.label_product_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.label_product_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.label_product_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.label_product_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.label_product_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.label_product_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.label_product_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.label_product_table.verticalHeader().setVisible(False)
+        self.label_product_table.setShowGrid(False)
+        self.label_product_table.setStyleSheet("""
+            QTableWidget {
+                background-color: #0d1117; color: #c9d1d9;
+                border: none; border-radius: 8px; font-size: 12px;
+            }
+            QTableWidget::item { padding: 6px 8px; border-bottom: 1px solid #21262d; }
+            QTableWidget::item:selected { background-color: #1a56db22; color: #ffffff; }
+            QHeaderView::section {
+                background: #0d1117; color: #8b949e; border: none;
+                padding: 6px; font-size: 11px; font-weight: 700;
                 border-bottom: 1px solid #21262d;
             }
-            QListWidget::item:selected {
-                background-color: #1a56db22;
-                color: #ffffff;
-                border-left: 3px solid #1a56db;
-            }
-            QListWidget::item:hover { background-color: #21262d; }
-            QScrollBar:vertical { background: #0d1117; width: 6px; border-radius: 3px; }
-            QScrollBar::handle:vertical { background: #30363d; border-radius: 3px; }
         """)
-        self.label_product_list.currentItemChanged.connect(self._label_on_product_selected)
+        self.label_product_table.currentItemChanged.connect(self._label_on_row_changed)
 
-        layout.addWidget(self.label_search)
-        layout.addWidget(self.label_product_list, stretch=1)
+        layout.addLayout(toolbar)
+        layout.addWidget(self.label_product_table, stretch=1)
 
+        self._label_products = {}   # pid -> dict
+        self._label_checked = set() # pids currently checked
         self._label_load_products()
         return panel
 
     # ── Right: options + preview + print ─────────────────────────────
     def _build_label_right(self):
         panel = QFrame()
-        panel.setFixedWidth(320)
+        panel.setFixedWidth(340)
         panel.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(10)
 
-        # ── Label preview canvas ─────────────────────────────────────
+        # ── Label preview ─────────────────────────────────────────────
         preview_lbl = QLabel("LABEL PREVIEW")
         preview_lbl.setStyleSheet(
             "color: #8b949e; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
         )
-
         self.label_preview = _LabelPreviewWidget()
-        self.label_preview.setFixedHeight(200)
+        self.label_preview.setFixedHeight(180)
 
-        # ── Label size ───────────────────────────────────────────────
-        size_lbl = QLabel("LABEL SIZE")
+        # ── Page / label size ─────────────────────────────────────────
+        size_lbl = QLabel("PAGE / LABEL SIZE")
         size_lbl.setStyleSheet(
             "color: #8b949e; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
         )
@@ -2609,35 +2702,36 @@ class SupervisorDashboard(BaseWindow):
                 selection-background-color: #1a56db;
             }
         """)
-        for w_mm, h_mm, name in self._LABEL_SIZES:
-            self.label_size_combo.addItem(name, (w_mm, h_mm))
+        for entry in self._LABEL_SIZES:
+            w_val, h_val, display, is_page = entry
+            self.label_size_combo.addItem(display, entry)
         self.label_size_combo.currentIndexChanged.connect(self._label_update_preview)
 
-        # ── What to show on label ────────────────────────────────────
+        # ── Show on label ─────────────────────────────────────────────
         show_lbl = QLabel("SHOW ON LABEL")
         show_lbl.setStyleSheet(
             "color: #8b949e; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
         )
         chk_style = "color: #c9d1d9; font-size: 13px;"
-        self.label_chk_name    = QCheckBox("Product Name");   self.label_chk_name.setChecked(True)
-        self.label_chk_brand   = QCheckBox("Brand");          self.label_chk_brand.setChecked(True)
-        self.label_chk_price   = QCheckBox("Price");          self.label_chk_price.setChecked(True)
-        self.label_chk_barcode = QCheckBox("Barcode");        self.label_chk_barcode.setChecked(True)
+        self.label_chk_name    = QCheckBox("Product Name");  self.label_chk_name.setChecked(True)
+        self.label_chk_brand   = QCheckBox("Brand");         self.label_chk_brand.setChecked(True)
+        self.label_chk_price   = QCheckBox("Price");         self.label_chk_price.setChecked(True)
+        self.label_chk_barcode = QCheckBox("Barcode");       self.label_chk_barcode.setChecked(True)
         for chk in (self.label_chk_name, self.label_chk_brand,
                     self.label_chk_price, self.label_chk_barcode):
             chk.setStyleSheet(chk_style)
             chk.stateChanged.connect(self._label_update_preview)
 
-        # ── Copies ───────────────────────────────────────────────────
+        # ── Copies per product ────────────────────────────────────────
         copies_row = QHBoxLayout()
-        copies_lbl = QLabel("Copies:")
-        copies_lbl.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+        copies_lbl = QLabel("Copies per product:")
+        copies_lbl.setStyleSheet("color: #c9d1d9; font-size: 12px;")
         self.label_copies = QSpinBox()
         self.label_copies.setMinimum(1)
         self.label_copies.setMaximum(999)
         self.label_copies.setValue(1)
         self.label_copies.setFixedWidth(80)
-        self.label_copies.setFixedHeight(34)
+        self.label_copies.setFixedHeight(32)
         self.label_copies.setStyleSheet("""
             QSpinBox {
                 background-color: #0d1117; color: #ffffff;
@@ -2653,7 +2747,7 @@ class SupervisorDashboard(BaseWindow):
         copies_row.addWidget(self.label_copies)
         copies_row.addStretch()
 
-        # ── Print button ─────────────────────────────────────────────
+        # ── Print button ──────────────────────────────────────────────
         self.label_print_btn = QPushButton("🖨  Print Labels")
         self.label_print_btn.setFixedHeight(42)
         self.label_print_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2670,36 +2764,29 @@ class SupervisorDashboard(BaseWindow):
         """)
         self.label_print_btn.clicked.connect(self._label_print)
 
-        # ── Status label ─────────────────────────────────────────────
         self.label_status = QLabel("")
         self.label_status.setStyleSheet("color: #3fb950; font-size: 12px;")
         self.label_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_status.setWordWrap(True)
 
-        # ── Assemble ─────────────────────────────────────────────────
+        # ── Assemble ──────────────────────────────────────────────────
+        def _div():
+            f = QFrame(); f.setFrameShape(QFrame.Shape.HLine)
+            f.setStyleSheet("background: #30363d; max-height: 1px; border: none;")
+            return f
+
         layout.addWidget(preview_lbl)
         layout.addWidget(self.label_preview)
-
-        div1 = QFrame(); div1.setFrameShape(QFrame.Shape.HLine)
-        div1.setStyleSheet("background: #30363d; max-height: 1px; border: none;")
-        layout.addWidget(div1)
-
+        layout.addWidget(_div())
         layout.addWidget(size_lbl)
         layout.addWidget(self.label_size_combo)
-
-        div2 = QFrame(); div2.setFrameShape(QFrame.Shape.HLine)
-        div2.setStyleSheet("background: #30363d; max-height: 1px; border: none;")
-        layout.addWidget(div2)
-
+        layout.addWidget(_div())
         layout.addWidget(show_lbl)
         layout.addWidget(self.label_chk_name)
         layout.addWidget(self.label_chk_brand)
         layout.addWidget(self.label_chk_price)
         layout.addWidget(self.label_chk_barcode)
-
-        div3 = QFrame(); div3.setFrameShape(QFrame.Shape.HLine)
-        div3.setStyleSheet("background: #30363d; max-height: 1px; border: none;")
-        layout.addWidget(div3)
-
+        layout.addWidget(_div())
         layout.addLayout(copies_row)
         layout.addStretch()
         layout.addWidget(self.label_print_btn)
@@ -2715,56 +2802,114 @@ class SupervisorDashboard(BaseWindow):
         if query:
             like = f"%{query}%"
             cursor.execute("""
-                SELECT p.id, p.name, p.barcode, p.brand, p.selling_price
+                SELECT p.id, p.name, p.barcode, p.brand, p.selling_price, p.alias_id
                 FROM products p
                 WHERE p.name LIKE ? OR p.barcode LIKE ? OR p.brand LIKE ?
                 ORDER BY p.name
             """, (like, like, like))
         else:
             cursor.execute("""
-                SELECT p.id, p.name, p.barcode, p.brand, p.selling_price
-                FROM products p
-                ORDER BY p.name
+                SELECT p.id, p.name, p.barcode, p.brand, p.selling_price, p.alias_id
+                FROM products p ORDER BY p.name
             """)
         rows = cursor.fetchall()
         conn.close()
 
-        self.label_product_list.clear()
-        self._label_products = {}  # pid -> (name, barcode, brand, price)
+        tbl = self.label_product_table
+        tbl.setRowCount(0)
+        self._label_products = {}
 
-        for pid, name, barcode, brand, price in rows:
-            display = f"{name}"
-            if brand:
-                display += f"  —  {brand}"
-            display += f"    ${price:.2f}"
-            item = QListWidgetItem(display)
-            item.setData(Qt.ItemDataRole.UserRole, pid)
-            self.label_product_list.addItem(item)
+        for pid, name, barcode, brand, price, alias_id in rows:
+            row = tbl.rowCount()
+            tbl.insertRow(row)
+
+            # Checkbox cell
+            chk = QCheckBox()
+            chk.setChecked(pid in self._label_checked)
+            chk.setStyleSheet("margin-left: 10px;")
+            chk.stateChanged.connect(lambda state, p=pid: self._label_on_check(p, state))
+            cell_w = QWidget(); cell_l = QHBoxLayout(cell_w)
+            cell_l.addWidget(chk); cell_l.setContentsMargins(6, 0, 0, 0)
+            tbl.setCellWidget(row, 0, cell_w)
+
+            name_item = QTableWidgetItem(name)
+            name_item.setData(Qt.ItemDataRole.UserRole, pid)
+            name_item.setForeground(QColor("#ffffff"))
+
+            brand_item = QTableWidgetItem(brand or "")
+            brand_item.setForeground(QColor("#8b949e"))
+
+            bc_item = QTableWidgetItem(barcode or "")
+            bc_item.setForeground(QColor("#484f58"))
+
+            price_item = QTableWidgetItem(f"${price:.2f}")
+            price_item.setForeground(QColor("#3fb950"))
+            price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+            tbl.setItem(row, 1, name_item)
+            tbl.setItem(row, 2, brand_item)
+            tbl.setItem(row, 3, bc_item)
+            tbl.setItem(row, 4, price_item)
+            tbl.setRowHeight(row, 34)
+
             self._label_products[pid] = {
-                "name":    name,
-                "barcode": barcode,
-                "brand":   brand or "",
-                "price":   price,
+                "name":     name,
+                "barcode":  barcode or "",
+                "brand":    brand or "",
+                "price":    price,
+                "alias_id": alias_id,
             }
+
+        self._label_refresh_count()
+
+    def _label_on_check(self, pid, state):
+        if state == Qt.CheckState.Checked.value:
+            self._label_checked.add(pid)
+        else:
+            self._label_checked.discard(pid)
+        self._label_refresh_count()
+        self.label_print_btn.setEnabled(bool(self._label_checked))
+
+    def _label_refresh_count(self):
+        n = len(self._label_checked)
+        self.label_sel_count.setText(f"{n} selected")
+
+    def _label_select_all(self):
+        self._label_checked = set(self._label_products.keys())
+        self._label_load_products(self.label_search.text().strip())
+
+    def _label_clear_selection(self):
+        self._label_checked.clear()
+        self._label_load_products(self.label_search.text().strip())
+        self.label_print_btn.setEnabled(False)
 
     def _label_filter_products(self, text):
         self._label_load_products(text.strip())
 
-    def _label_on_product_selected(self, current, _prev):
+    def _label_on_row_changed(self, current, _prev):
+        """Update preview to show the currently highlighted row."""
         if not current:
-            self.label_print_btn.setEnabled(False)
-            self.label_preview.set_product(None)
             return
-        pid  = current.data(Qt.ItemDataRole.UserRole)
+        row = current.row()
+        name_item = self.label_product_table.item(row, 1)
+        if not name_item:
+            return
+        pid  = name_item.data(Qt.ItemDataRole.UserRole)
         data = self._label_products.get(pid)
         if data:
             self.label_preview.set_product(data)
             self._label_update_preview()
-            self.label_print_btn.setEnabled(True)
-            self.label_status.setText("")
 
     def _label_update_preview(self):
-        w_mm, h_mm = self.label_size_combo.currentData() or (50, 30)
+        entry = self.label_size_combo.currentData()
+        if not entry:
+            return
+        w_val, h_val, _, is_page = entry
+        # For page layouts, preview using a representative label cell size
+        if is_page:
+            w_mm, h_mm = 50, 30
+        else:
+            w_mm, h_mm = w_val, h_val
         options = {
             "show_name":    self.label_chk_name.isChecked(),
             "show_brand":   self.label_chk_brand.isChecked(),
@@ -2776,25 +2921,59 @@ class SupervisorDashboard(BaseWindow):
         self.label_preview.set_options(options)
         self.label_preview.update()
 
-    def _label_print(self):
-        item = self.label_product_list.currentItem()
-        if not item:
-            return
-        pid  = item.data(Qt.ItemDataRole.UserRole)
+    def _label_get_siblings(self, pid):
+        """Return list of sibling product dicts sharing the same alias_id (excluding pid itself)."""
         data = self._label_products.get(pid)
-        if not data:
+        if not data or not data.get("alias_id"):
+            return []
+        alias_id = data["alias_id"]
+        siblings = []
+        for other_pid, other_data in self._label_products.items():
+            if other_pid != pid and other_data.get("alias_id") == alias_id:
+                siblings.append((other_pid, other_data))
+        return siblings
+
+    def _label_print(self):
+        if not self._label_checked:
             return
 
-        w_mm, h_mm = self.label_size_combo.currentData()
-        copies     = self.label_copies.value()
-        options    = {
+        # Collect all selected products
+        selected_pids = list(self._label_checked)
+
+        # Check if any selected product has unchecked siblings with same alias
+        sibling_pids_to_ask = set()
+        for pid in selected_pids:
+            for sib_pid, _ in self._label_get_siblings(pid):
+                if sib_pid not in self._label_checked:
+                    sibling_pids_to_ask.add(sib_pid)
+
+        if sibling_pids_to_ask:
+            sibling_names = [self._label_products[p]["name"] for p in sibling_pids_to_ask]
+            names_str = "\n".join(f"  • {n}" for n in sibling_names[:10])
+            extra = f" (and {len(sibling_names)-10} more)" if len(sibling_names) > 10 else ""
+            reply = QMessageBox.question(
+                self, "Print Sibling Products?",
+                f"Some selected products have related variants not selected:\n{names_str}{extra}\n\n"
+                "Would you like to print labels for these variants too?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel
+            )
+            if reply == QMessageBox.StandardButton.Cancel:
+                return
+            if reply == QMessageBox.StandardButton.Yes:
+                selected_pids += list(sibling_pids_to_ask)
+
+        copies  = self.label_copies.value()
+        options = {
             "show_name":    self.label_chk_name.isChecked(),
             "show_brand":   self.label_chk_brand.isChecked(),
             "show_price":   self.label_chk_price.isChecked(),
             "show_barcode": self.label_chk_barcode.isChecked(),
-            "label_w_mm":   w_mm,
-            "label_h_mm":   h_mm,
         }
+
+        entry = self.label_size_combo.currentData()
+        if not entry:
+            return
+        w_val, h_val, _, is_page = entry
 
         try:
             from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
@@ -2803,38 +2982,130 @@ class SupervisorDashboard(BaseWindow):
 
             printer = QPrinter(QPrinter.PrinterMode.HighResolution)
             printer.setColorMode(QPrinter.ColorMode.GrayScale)
+            printer.setOrientation(QPrinter.Orientation.Portrait)
 
-            # Set custom page size = label size
-            page_size = QPageSize(
-                QSizeF(w_mm, h_mm),
-                QPageSize.Unit.Millimeter,
-                "Label"
-            )
-            layout = QPageLayout(
-                page_size,
-                QPageLayout.Orientation.Portrait,
-                QMarginsF(0, 0, 0, 0),
-                QPageLayout.Unit.Millimeter
-            )
-            printer.setPageLayout(layout)
+            if is_page:
+                # Standard page layout with grid of labels
+                page_size_map = {
+                    "A4":     QPrinter.PaperSize.A4,
+                    "Letter": QPrinter.PaperSize.Letter,
+                    "Legal":  QPrinter.PaperSize.Legal,
+                    "POS55":  None,
+                    "POS57":  None,
+                    "POS76":  None,
+                }
+                pos_widths = {"POS55": 55, "POS57": 57, "POS76": 76}
+
+                if w_val in pos_widths:
+                    roll_w = pos_widths[w_val]
+                    page_size = QPageSize(
+                        QSizeF(roll_w, 297),
+                        QPageSize.Unit.Millimeter,
+                        w_val
+                    )
+                    layout = QPageLayout(
+                        page_size,
+                        QPageLayout.Orientation.Portrait,
+                        QMarginsF(2, 2, 2, 2),
+                        QPageLayout.Unit.Millimeter
+                    )
+                    printer.setPageLayout(layout)
+                    label_w_mm = roll_w - 4
+                    label_h_mm = 30
+                    cols = 1
+                else:
+                    paper = page_size_map.get(w_val, QPrinter.PaperSize.A4)
+                    printer.setPaperSize(paper)
+                    printer.setPageMargins(QMarginsF(8, 8, 8, 8), QPrinter.Unit.Millimeter)
+                    label_w_mm = 62
+                    label_h_mm = 35
+                    cols = self._PAGE_COLS.get(w_val, 3)
+            else:
+                # Individual label size
+                label_w_mm = w_val
+                label_h_mm = h_val
+                page_size = QPageSize(
+                    QSizeF(label_w_mm, label_h_mm),
+                    QPageSize.Unit.Millimeter,
+                    "Label"
+                )
+                layout = QPageLayout(
+                    page_size,
+                    QPageLayout.Orientation.Portrait,
+                    QMarginsF(0, 0, 0, 0),
+                    QPageLayout.Unit.Millimeter
+                )
+                printer.setPageLayout(layout)
+                cols = 1
 
             dlg = QPrintDialog(printer, self)
             if dlg.exec() != QPrintDialog.DialogCode.Accepted:
                 return
 
+            from PyQt6.QtGui import QPainter
             painter = QPainter()
             if not painter.begin(printer):
                 self.label_status.setText("❌  Could not start printer.")
                 return
 
-            rect = printer.pageRect(QPrinter.Unit.DevicePixel)
-            for i in range(copies):
-                if i > 0:
-                    printer.newPage()
-                _draw_label(painter, rect, data, options)
+            page_rect = printer.pageRect(QPrinter.Unit.DevicePixel)
+
+            # Convert mm to device pixels
+            dpi = printer.resolution()
+            px_per_mm = dpi / 25.4
+            lw_px = label_w_mm * px_per_mm
+            lh_px = label_h_mm * px_per_mm
+
+            # Gap between labels on page layouts
+            gap_px = 3 * px_per_mm if is_page else 0
+
+            # Build full job list: (product_data, copy_number)
+            job = []
+            for pid in selected_pids:
+                data = self._label_products.get(pid)
+                if data:
+                    for _ in range(copies):
+                        job.append(data)
+
+            if is_page:
+                # Grid layout — pack multiple labels per page
+                x_start = page_rect.left()
+                y_start = page_rect.top()
+                col = 0
+                row_y = y_start
+
+                for i, data in enumerate(job):
+                    x = x_start + col * (lw_px + gap_px)
+                    y = row_y
+
+                    from PyQt6.QtCore import QRectF
+                    rect = QRectF(x, y, lw_px, lh_px)
+                    opts = dict(options, label_w_mm=label_w_mm, label_h_mm=label_h_mm)
+                    _draw_label(painter, rect, data, opts)
+
+                    col += 1
+                    if col >= cols:
+                        col = 0
+                        row_y += lh_px + gap_px
+                        # New page if we exceed page height
+                        if row_y + lh_px > page_rect.bottom():
+                            printer.newPage()
+                            row_y = y_start
+            else:
+                # One label per page
+                from PyQt6.QtCore import QRectF
+                for i, data in enumerate(job):
+                    if i > 0:
+                        printer.newPage()
+                    rect = QRectF(page_rect.left(), page_rect.top(), lw_px, lh_px)
+                    opts = dict(options, label_w_mm=label_w_mm, label_h_mm=label_h_mm)
+                    _draw_label(painter, rect, data, opts)
 
             painter.end()
-            self.label_status.setText(f"✅  Printed {copies} label(s).")
+            total = len(job)
+            self.label_status.setText(
+                f"✅  Printed {total} label(s) for {len(selected_pids)} product(s)."
+            )
 
         except Exception as e:
             self.label_status.setText(f"❌  {e}")
