@@ -1,0 +1,37 @@
+i'm arch linux but will port to windows later
+Product database (barcode | brand | name | price | alsa/description | discount level | case | stock)
+    -product alsa/description can have multiple barcodes
+    -product discount level base on amount of product being purchase
+    -product case like case of apple can a case of 32 and one with 12
+User database (Role)
+    -user role cashier (checkout dashboard, order dashboard)
+    -user role supervisor (can add/edit/delete products, refunds, void transation, reprint receipt, session total sales per cashier)
+    -user role manager (add/edit/delete users, edit business info, discount percentage per level, tax percentage and all supervisor function)
+Checkout database - logs checkout of receipts date, time and the cashier did checkout
+Receipt printing on receipt printer and normal printer
+change one product alsa/description changes all attach
+self labels making and printing
+standlone with funtion to connet to external database server
+
+
+Based on your original checklist, here's where things stand:
+Done ✓
+
+Project structure + config
+4 separate databases
+Login window
+Cashier dashboard — 3 carts, F1–F8, GCT, change display
+Checkout dialog — cash, change, transaction saved
+Supervisor — Products tab with alias/price sync
+Supervisor — Reports tab (Cashing Sessions)
+Supervisor — Void / Refund tab
+Manager dashboard — users, business info, GCT%, F1–F8, discount levels, groups
+Cost/selling price profit system (just completed)
+Receipt printing — thermal and impact + normal printer
+Shelf label maker
+
+Remaining ○
+
+
+PostgreSQL sync (external database conncet)
+

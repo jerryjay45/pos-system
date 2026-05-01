@@ -21,7 +21,7 @@ class LoginWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("POS System — Login")
+        self.setWindowTitle("Merchant POS System — Login")
         self.setFixedSize(420, 520)
         self._center_on_screen()
         self._build_ui()
@@ -65,7 +65,7 @@ class LoginWindow(QMainWindow):
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo_label.setStyleSheet("color: #e94560; font-size: 42px; border: none;")
 
-        title_label = QLabel("POS System")
+        title_label = QLabel("Merchant POS Systems")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet("""
             color: #ffffff;

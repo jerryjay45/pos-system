@@ -10,7 +10,7 @@ from pathlib import Path
 # APPLICATION INFO
 # ----------------------------------------------------------------
 
-APP_NAME    = "POS System"
+APP_NAME    = "Merchant POS System"
 APP_VERSION = "1.0.0"
 
 # ----------------------------------------------------------------
@@ -31,6 +31,7 @@ TRANSACTIONS_DB = DATA_DIR / "transactions.db"
 # ----------------------------------------------------------------
 
 USE_POSTGRES = False
+#USE_POSTGRES = True
 
 POSTGRES_CONFIG = {
     "host":     "localhost",
