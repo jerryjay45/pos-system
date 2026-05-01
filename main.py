@@ -23,21 +23,27 @@ def main():
     app.setApplicationVersion(APP_VERSION)
 
     # ----------------------------------------------------------------
-    # Step 2 — Make sure the database and all tables are ready
+    # Step 2 — Apply theme (dark by default)
+    # ----------------------------------------------------------------
+    from ui.theme import ThemeManager
+    ThemeManager.instance().apply(app)
+
+    # ----------------------------------------------------------------
+    # Step 3 — Make sure the database and all tables are ready
     # Safe to run every time — won't wipe existing data
     # ----------------------------------------------------------------
     create_tables()
 
     # ----------------------------------------------------------------
-    # Step 3 — Show the login window
+    # Step 4 — Show the login window
     # Imported here to avoid circular imports at the top of the file
     # ----------------------------------------------------------------
     from ui.login_window import LoginWindow
-    login = LoginWindow()
+    login = LoginWindow(app)
     login.show()
 
     # ----------------------------------------------------------------
-    # Step 4 — Keep the app running until the window is closed
+    # Step 5 — Keep the app running until the window is closed
     # sys.exit ensures a clean exit code when the app closes
     # ----------------------------------------------------------------
     sys.exit(app.exec())

@@ -171,10 +171,17 @@ def print_text_thermal(text_lines, cut=True):
         for line in text_lines.split("\n"):
             p.text(line + "\n")
 
-        # Feed and beep (impact printers don't auto-cut)
+        # Feed lines for tear (impact printers don't auto-cut)
         if cut:
             p.text("\n\n\n")   # feed 3 lines for tear
-            p.buzzer()         # beep to alert cashier
+            # Beep to alert cashier — method name varies by escpos version
+            try:
+                p.beep()
+            except AttributeError:
+                try:
+                    p.buzzer()
+                except AttributeError:
+                    pass   # older / stripped builds — silent is fine
 
         p.close()
         return True, None

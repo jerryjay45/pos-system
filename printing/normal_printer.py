@@ -8,16 +8,16 @@ remaining page space is left blank.
 """
 
 from PyQt6.QtPrintSupport import QPrinter, QPrinterInfo, QPrintDialog
-from PyQt6.QtGui import QPainter, QFont, QFontMetrics
-from PyQt6.QtCore import Qt, QRect
+from PyQt6.QtGui import QPainter, QFont, QFontMetrics, QPageLayout, QPageSize
+from PyQt6.QtCore import Qt, QRect, QMarginsF
 
 
 # ── Paper size map ────────────────────────────────────────────────────────────
 
 _PAPER_SIZES = {
-    "A4":     QPrinter.PaperSize.A4,
-    "Letter": QPrinter.PaperSize.Letter,
-    "Legal":  QPrinter.PaperSize.Legal,
+    "A4":     QPageSize.PageSizeId.A4,
+    "Letter": QPageSize.PageSizeId.Letter,
+    "Legal":  QPageSize.PageSizeId.Legal,
 }
 
 
@@ -49,11 +49,16 @@ def _setup_printer(settings, show_dialog=False, parent=None):
     """
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
     printer.setColorMode(QPrinter.ColorMode.GrayScale)
-    printer.setOrientation(QPrinter.Orientation.Portrait)
 
-    paper_size = _PAPER_SIZES.get(settings.get("paper_size", "A4"),
-                                  QPrinter.PaperSize.A4)
-    printer.setPaperSize(paper_size)
+    page_size_id = _PAPER_SIZES.get(
+        settings.get("paper_size", "A4"), QPageSize.PageSizeId.A4
+    )
+    page_layout = QPageLayout(
+        QPageSize(page_size_id),
+        QPageLayout.Orientation.Portrait,
+        QMarginsF(10, 10, 10, 10),   # narrow margins — receipt needs full width
+    )
+    printer.setPageLayout(page_layout)
 
     # Try to use the saved printer name
     saved_name = settings.get("printer_name", "")

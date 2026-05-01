@@ -27,18 +27,19 @@ class CheckoutDialog(QDialog):
         self.cashier_name = cashier_name
         self.gct_rate     = gct_rate
 
-        # Calculate totals from cart
+        # Calculate totals from cart — discount_applied already computed by dashboard
         self.subtotal    = round(sum(i["price"] * i["qty"] for i in cart), 2)
         self.gct_total   = round(sum(i["gct"]   * i["qty"] for i in cart), 2)
-        self.discount    = 0.0
+        self.discount    = round(sum(i.get("discount_applied", 0.0) * i["qty"] for i in cart), 2)
         self.total       = round(self.subtotal + self.gct_total - self.discount, 2)
         self.change_given = 0.0  # set after payment confirmed, read by dashboard
         self.last_transaction_id = None  # set after save, read by dashboard for reprint
 
         self.setWindowTitle("Checkout")
-        self.setFixedSize(400, 480)
+        self.setMinimumSize(360, 440)
+        self.resize(400, 480)
         self.setModal(True)
-        self.setStyleSheet("background-color: #161b22;")
+        self.setStyleSheet("background-color: #0d1f2d;")
         self._build_ui()
         self._update_change()
 
@@ -62,7 +63,7 @@ class CheckoutDialog(QDialog):
         summary = QFrame()
         summary.setStyleSheet("""
             QFrame {
-                background-color: #0d1117;
+                background-color: #0b1120;
                 border-radius: 8px;
             }
         """)
@@ -83,23 +84,23 @@ class CheckoutDialog(QDialog):
         # ── Cash tendered ─────────────────────────────────────────────
         cash_label = QLabel("Cash Tendered")
         cash_label.setStyleSheet(
-            "color: #8b949e; font-size: 12px; "
+            "color: #64748b; font-size: 12px; "
             "text-transform: uppercase; letter-spacing: 1px;"
         )
 
         cash_row = QHBoxLayout()
         dollar = QLabel("$")
-        dollar.setStyleSheet("color: #8b949e; font-size: 20px;")
+        dollar.setStyleSheet("color: #64748b; font-size: 20px;")
 
         self.cash_input = QLineEdit()
         self.cash_input.setPlaceholderText("0.00")
-        self.cash_input.setFixedHeight(50)
+        self.cash_input.setMinimumHeight(42)
         self.cash_input.setValidator(QDoubleValidator(0, 999999, 2))
         self.cash_input.setStyleSheet("""
             QLineEdit {
-                background-color: #0d1117;
+                background-color: #0b1120;
                 color: #ffffff;
-                border: 1.5px solid #1a56db;
+                border: 1.5px solid #f59e0b;
                 border-radius: 8px;
                 padding: 0 14px;
                 font-size: 22px;
@@ -116,17 +117,17 @@ class CheckoutDialog(QDialog):
         # ── Change due ────────────────────────────────────────────────
         change_frame = QFrame()
         change_frame.setStyleSheet("""
-            QFrame { background-color: #0d1117; border-radius: 8px; }
+            QFrame { background-color: #0b1120; border-radius: 8px; }
         """)
         change_layout = QHBoxLayout(change_frame)
         change_layout.setContentsMargins(16, 14, 16, 14)
 
         change_lbl = QLabel("Change Due")
-        change_lbl.setStyleSheet("color: #8b949e; font-size: 14px;")
+        change_lbl.setStyleSheet("color: #64748b; font-size: 14px;")
 
         self.change_label = QLabel("$0.00")
         self.change_label.setStyleSheet(
-            "color: #3fb950; font-size: 22px; font-weight: 800;"
+            "color: #10b981; font-size: 22px; font-weight: 800;"
         )
         self.change_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
@@ -138,23 +139,23 @@ class CheckoutDialog(QDialog):
         btn_row.setSpacing(10)
 
         cancel_btn = QPushButton("Cancel")
-        cancel_btn.setFixedHeight(46)
+        cancel_btn.setMinimumHeight(38)
         cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         cancel_btn.setStyleSheet("""
             QPushButton {
-                background-color: #21262d;
+                background-color: #1e293b;
                 color: #ffffff;
-                border: 1.5px solid #30363d;
+                border: 1.5px solid #1e3a5f;
                 border-radius: 8px;
                 font-size: 13px;
                 font-weight: 600;
             }
-            QPushButton:hover { background-color: #30363d; }
+            QPushButton:hover { background-color: #1e3a5f; }
         """)
         cancel_btn.clicked.connect(self.reject)
 
         self.confirm_btn = QPushButton("Confirm Payment")
-        self.confirm_btn.setFixedHeight(46)
+        self.confirm_btn.setMinimumHeight(38)
         self.confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.confirm_btn.setEnabled(False)
         self.confirm_btn.setStyleSheet("""
@@ -167,7 +168,7 @@ class CheckoutDialog(QDialog):
                 font-weight: 600;
             }
             QPushButton:hover:enabled { background-color: #2ea043; }
-            QPushButton:disabled { background-color: #21262d; color: #6e7681; }
+            QPushButton:disabled { background-color: #1e293b; color: #6e7681; }
         """)
         self.confirm_btn.clicked.connect(self._confirm_payment)
 
@@ -197,7 +198,7 @@ class CheckoutDialog(QDialog):
 
         lbl = QLabel(label)
         lbl.setStyleSheet(
-            f"color: {'#ffffff' if bold else '#8b949e'}; "
+            f"color: {'#ffffff' if bold else '#64748b'}; "
             f"font-size: {'16' if bold else '13'}px; "
             f"font-weight: {'700' if bold else '400'}; background: transparent;"
         )
@@ -215,7 +216,7 @@ class CheckoutDialog(QDialog):
 
     def _divider(self):
         divider = QFrame()
-        divider.setStyleSheet("background-color: #30363d;")
+        divider.setStyleSheet("background-color: #1e3a5f;")
         divider.setFixedHeight(1)
         return divider
 
@@ -235,7 +236,7 @@ class CheckoutDialog(QDialog):
         if cash == 0.0:
             self.change_label.setText("$0.00")
             self.change_label.setStyleSheet(
-                "color: #8b949e; font-size: 22px; font-weight: 800;"
+                "color: #64748b; font-size: 22px; font-weight: 800;"
             )
             self.confirm_btn.setEnabled(False)
         elif change < 0:
@@ -249,7 +250,7 @@ class CheckoutDialog(QDialog):
             # Enough cash — show change in green
             self.change_label.setText(f"${change:.2f}")
             self.change_label.setStyleSheet(
-                "color: #3fb950; font-size: 22px; font-weight: 800;"
+                "color: #10b981; font-size: 22px; font-weight: 800;"
             )
             self.confirm_btn.setEnabled(True)
 
@@ -290,7 +291,7 @@ class CheckoutDialog(QDialog):
                 f"Change:  ${change:.2f}"
             )
             msg.setIcon(QMessageBox.Icon.Information)
-            msg.setStyleSheet("background-color: #161b22; color: #ffffff;")
+            msg.setStyleSheet("background-color: #0d1f2d; color: #ffffff;")
             msg.exec()
             self.accept()
         else:

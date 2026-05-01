@@ -153,16 +153,20 @@ def build_session_receipt(session_id):
     (sid, cashier, opened_at, closed_at, total_sales, total_gct,
      total_discount, tx_count, status, opened_by, closed_by) = sess
 
-    # Top 10 transactions for the session summary
+    # Transactions that belong to this cashier's login sessions which
+    # started on or after the cashing session was opened.
+    # We join through sessions (login) → transactions using cashier_id.
     cursor.execute("""
         SELECT t.id, t.date, t.time, t.total, t.status
         FROM transactions t
-        WHERE t.session_id IN (
-            SELECT s.id FROM sessions s
-            WHERE s.cashier_name = ? AND s.started_at >= ?
+        INNER JOIN sessions s ON s.id = t.session_id
+        WHERE s.cashier_id = (
+            SELECT cashier_id FROM cashing_sessions WHERE id = ?
         )
+          AND s.started_at >= ?
+          AND (? IS NULL OR s.started_at <= ?)
         ORDER BY t.id DESC LIMIT 20
-    """, (cashier, opened_at))
+    """, (session_id, opened_at, closed_at, closed_at))
     transactions = [
         {"id": r[0], "date": r[1], "time": r[2],
          "total": r[3], "status": r[4]}

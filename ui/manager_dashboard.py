@@ -32,71 +32,73 @@ from db import get_users_conn, get_business_conn, get_products_conn
 
 _BTN_BLUE = """
     QPushButton {
-        background-color: #1a56db; color: #ffffff;
+        background-color: #f59e0b; color: #ffffff;
         border: none; border-radius: 8px;
         font-size: 13px; font-weight: 600; padding: 0 18px;
     }
-    QPushButton:hover  { background-color: #1145b0; }
-    QPushButton:pressed{ background-color: #0e3a8a; }
+    QPushButton:hover  { background-color: #d97706; }
+    QPushButton:pressed{ background-color: #b45309; }
     QPushButton:disabled{ background-color: #1a2540; color: #4a5a7a; }
 """
 _BTN_RED = """
     QPushButton {
-        background: #7f1d1d; color: #fca5a5;
+        background: #ef444422; color: #fca5a5;
         border: none; border-radius: 8px;
         font-size: 12px; font-weight: 600; padding: 0 14px;
     }
-    QPushButton:hover  { background: #991b1b; }
+    QPushButton:hover  { background: #dc2626; }
     QPushButton:pressed{ background: #b91c1c; }
     QPushButton:disabled{ background: #2d1515; color: #6b3030; }
 """
 _BTN_GREEN = """
     QPushButton {
-        background: #14532d; color: #86efac;
+        background: #10b98122; color: #6ee7b7;
         border: none; border-radius: 8px;
         font-size: 12px; font-weight: 600; padding: 0 14px;
     }
-    QPushButton:hover  { background: #166534; }
+    QPushButton:hover  { background: #059669; }
     QPushButton:pressed{ background: #15803d; }
     QPushButton:disabled{ background: #0d2b18; color: #3a6b4a; }
 """
 _BTN_OUTLINE = """
     QPushButton {
-        background: transparent; color: #c9d1d9;
-        border: 1.5px solid #30363d; border-radius: 8px;
+        background: #0d1e2e; color: #94aac4;
+        border: 1.5px solid #2d5282; border-radius: 8px;
         font-size: 12px; font-weight: 600; padding: 0 14px;
     }
-    QPushButton:hover  { background: #21262d; color: #ffffff; }
-    QPushButton:pressed{ background: #30363d; }
-    QPushButton:disabled{ color: #3d444d; border-color: #21262d; }
+    QPushButton:hover  { background: #1e3a5f; color: #f59e0b; border-color: #f59e0b; }
+    QPushButton:pressed{ background: #f59e0b22; }
+    QPushButton:disabled{ color: #334155; border-color: #1e293b; }
 """
 _INPUT = """
     QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox {
-        background-color: #0d1117; color: #ffffff;
-        border: 1.5px solid #30363d; border-radius: 8px;
+        background-color: #0b1120; color: #ffffff;
+        border: 1.5px solid #1e3a5f; border-radius: 8px;
         padding: 0 12px; font-size: 13px;
     }
     QLineEdit:focus, QComboBox:focus,
-    QDoubleSpinBox:focus, QSpinBox:focus { border-color: #1a56db; }
+    QDoubleSpinBox:focus, QSpinBox:focus { border-color: #f59e0b; }
     QComboBox::drop-down { border: none; width: 20px; }
     QComboBox QAbstractItemView {
-        background: #0d1117; color: #c9d1d9;
-        border: 1px solid #30363d; selection-background-color: #1a56db;
+        background: #0b1120; color: #94a3b8;
+        border: 1px solid #1e3a5f; selection-background-color: #f59e0b; selection-color: #0a0400;
     }
     QDoubleSpinBox::up-button, QDoubleSpinBox::down-button,
     QSpinBox::up-button, QSpinBox::down-button {
-        background: #21262d; border: none; width: 18px;
+        background: #1e293b; border: none; width: 18px;
     }
 """
 _TABLE = """
-    QTableWidget { background: transparent; color: #c9d1d9; border: none; font-size: 12px; }
-    QTableWidget::item { padding: 8px; border-bottom: 1px solid #21262d; }
-    QTableWidget::item:selected { background-color: #1a56db22; color: #ffffff; }
-    QHeaderView::section { background: #0d1117; color: #8b949e; border: none; padding: 8px;
-                           font-size: 11px; font-weight: 700; border-bottom: 1px solid #21262d; }
+    QTableWidget { background: transparent; color: #f0f6ff; border: none; font-size: 13px; }
+    QTableWidget::item { padding: 8px; border-bottom: 1px solid #1e3a5f; color: #f0f6ff; }
+    QTableWidget::item:selected { background-color: #f59e0b55; color: #fbbf24; }
+    QTableWidget::item:hover { background-color: #172840; }
+    QHeaderView::section { background: #0a1929; color: #f59e0b; border: none; padding: 8px;
+                           font-size: 11px; font-weight: 700;
+                           border-bottom: 2px solid #f59e0b; }
 """
-_SECTION_LBL = "color: #8b949e; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
-_DIVIDER     = "background: #30363d;"
+_SECTION_LBL = "color: #f59e0b; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
+_DIVIDER     = "background: #1e3a5f;"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -112,21 +114,21 @@ class _ProductSearchWidget(QWidget):
 
     _INPUT_STYLE = """
         QLineEdit {
-            background-color: #0d1117; color: #ffffff;
-            border: 1.5px solid #30363d; border-radius: 8px;
+            background-color: #0b1120; color: #ffffff;
+            border: 1.5px solid #1e3a5f; border-radius: 8px;
             padding: 0 12px; font-size: 13px;
         }
-        QLineEdit:focus { border-color: #1a56db; }
+        QLineEdit:focus { border-color: #f59e0b; }
     """
     _LIST_STYLE = """
         QListWidget {
-            background-color: #161b22; color: #c9d1d9;
-            border: 1.5px solid #1a56db; border-radius: 0 0 8px 8px;
+            background-color: #0d1f2d; color: #94a3b8;
+            border: 1.5px solid #f59e0b; border-radius: 0 0 8px 8px;
             border-top: none; font-size: 12px;
         }
-        QListWidget::item { padding: 7px 12px; border-bottom: 1px solid #21262d; }
-        QListWidget::item:selected { background-color: #1a56db; color: #ffffff; }
-        QListWidget::item:hover    { background-color: #21262d; }
+        QListWidget::item { padding: 7px 12px; border-bottom: 1px solid #1e293b; }
+        QListWidget::item:selected { background-color: #f59e0b; color: #0a0400; }
+        QListWidget::item:hover    { background-color: #1e293b; }
     """
 
     def __init__(self, parent=None):
@@ -255,10 +257,9 @@ class ManagerDashboard(SupervisorDashboard):
     inherited as-is.  Manager-only tabs are prepended.
     """
 
-    def __init__(self, user_id, full_name):
-        # Call grandparent __init__ (BaseWindow) directly so we control
-        # everything ourselves, then replicate SupervisorDashboard setup.
-        super().__init__(user_id, full_name, role="manager")
+    def __init__(self, user_id, full_name, app=None):
+        # Call SupervisorDashboard __init__ passing app through
+        super().__init__(user_id, full_name, role="manager", app=app)
 
     # ── Override window title & tab order ────────────────────────────
 
@@ -266,7 +267,7 @@ class ManagerDashboard(SupervisorDashboard):
         """Override to inject manager tabs first."""
         from PyQt6.QtWidgets import QVBoxLayout, QWidget
         root = QWidget()
-        root.setStyleSheet("background-color: #0d1117;")
+        root.setStyleSheet("background-color: #0b1120;")
         self.setCentralWidget(root)
 
         layout = QVBoxLayout(root)
@@ -282,30 +283,36 @@ class ManagerDashboard(SupervisorDashboard):
 
     def _build_topbar(self):
         bar = QFrame()
-        bar.setFixedHeight(52)
-        # Manager gets a teal/darker topbar to distinguish from supervisor
-        bar.setStyleSheet("background-color: #0f766e; border-radius: 10px;")
+        bar.setMinimumHeight(44)
+        bar.setMaximumHeight(56)
+        # Manager: deep purple topbar — visually distinct from supervisor (green) and cashier (blue)
+        bar.setStyleSheet("background-color: #1a0a2e; border-radius: 10px;")
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(20, 0, 20, 0)
+        layout.setSpacing(10)
 
         left = QLabel(f"POS System  |  Manager:  {self.full_name}")
-        left.setStyleSheet("color: #ffffff; font-size: 15px; font-weight: 600;")
+        left.setStyleSheet("color: #e9d5ff; font-size: 15px; font-weight: 600;")
 
         self.clock_label = QLabel()
         self.clock_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.clock_label.setStyleSheet("color: #ffffff; font-size: 14px;")
+        self.clock_label.setStyleSheet("color: #c4b5fd; font-size: 14px;")
+
+        from ui.theme_toggle import ZoomWidget
+        zoom_w = ZoomWidget(self._app if hasattr(self, "_app") else None)
 
         logout_btn = QPushButton("Logout  ↗")
-        logout_btn.setFixedSize(120, 36)
+        logout_btn.setMinimumWidth(100)
+        logout_btn.setMinimumHeight(32)
         logout_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         logout_btn.setStyleSheet("""
             QPushButton {
-                background-color: #111827; color: #ffffff;
-                border: none; border-radius: 18px;
+                background-color: #2d1b4e; color: #e9d5ff;
+                border: 1.5px solid #4c1d95; border-radius: 18px;
                 font-size: 13px; font-weight: 700;
             }
-            QPushButton:hover   { background-color: #1f2937; }
-            QPushButton:pressed { background-color: #374151; }
+            QPushButton:hover   { background-color: #3b0764; border-color: #7c3aed; }
+            QPushButton:pressed { background-color: #4c1d95; }
         """)
         logout_btn.clicked.connect(self._handle_logout)
 
@@ -313,6 +320,8 @@ class ManagerDashboard(SupervisorDashboard):
         layout.addStretch()
         layout.addWidget(self.clock_label)
         layout.addStretch()
+        layout.addWidget(zoom_w)
+        layout.addSpacing(8)
         layout.addWidget(logout_btn)
         return bar
 
@@ -320,14 +329,14 @@ class ManagerDashboard(SupervisorDashboard):
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
             QTabWidget::pane {
-                background-color: #161b22;
+                background-color: #0d1f2d;
                 border: none;
                 border-radius: 0 8px 8px 8px;
             }
             QTabBar::tab {
-                background-color: #21262d;
-                color: #8b949e;
-                border: 1px solid #30363d;
+                background-color: #1e293b;
+                color: #64748b;
+                border: 1px solid #1e3a5f;
                 border-bottom: none;
                 border-radius: 6px 6px 0 0;
                 padding: 8px 20px;
@@ -335,11 +344,11 @@ class ManagerDashboard(SupervisorDashboard):
                 margin-right: 4px;
             }
             QTabBar::tab:selected {
-                background-color: #161b22;
+                background-color: #0d1f2d;
                 color: #ffffff;
                 font-weight: 700;
             }
-            QTabBar::tab:hover { background-color: #30363d; color: #ffffff; }
+            QTabBar::tab:hover { background-color: #1e3a5f; color: #ffffff; }
         """)
 
         # Manager-only tabs first
@@ -364,14 +373,14 @@ class ManagerDashboard(SupervisorDashboard):
 
     def _build_users_tab(self):
         w = QWidget()
-        w.setStyleSheet("background-color: #161b22;")
+        w.setStyleSheet("background-color: #0d1f2d;")
         layout = QHBoxLayout(w)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
         # ── Left: user list ──────────────────────────────────────────
         left = QFrame()
-        left.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        left.setStyleSheet("background: #0b1120; border-radius: 8px;")
         ll = QVBoxLayout(left)
         ll.setContentsMargins(10, 10, 10, 10)
         ll.setSpacing(8)
@@ -386,8 +395,8 @@ class ManagerDashboard(SupervisorDashboard):
 
         self.usr_role_filter = QComboBox()
         self.usr_role_filter.addItems(["All Roles", "Cashier", "Supervisor", "Manager"])
-        self.usr_role_filter.setFixedHeight(36)
-        self.usr_role_filter.setFixedWidth(130)
+        self.usr_role_filter.setMinimumHeight(32)
+        self.usr_role_filter.setMinimumWidth(110)
         self.usr_role_filter.setStyleSheet(_INPUT + "QComboBox { border-radius: 18px; }")
         self.usr_role_filter.currentIndexChanged.connect(self._usr_filter)
 
@@ -422,8 +431,9 @@ class ManagerDashboard(SupervisorDashboard):
 
         # ── Right: user form ─────────────────────────────────────────
         right = QFrame()
-        right.setFixedWidth(320)
-        right.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        right.setMinimumWidth(260)
+        right.setMaximumWidth(380)
+        right.setStyleSheet("background: #0b1120; border-radius: 8px;")
         rl = QVBoxLayout(right)
         rl.setContentsMargins(16, 16, 16, 16)
         rl.setSpacing(10)
@@ -439,7 +449,7 @@ class ManagerDashboard(SupervisorDashboard):
         form.setSpacing(10)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
-        lbl_style = "color: #8b949e; font-size: 12px;"
+        lbl_style = "color: #64748b; font-size: 12px;"
 
         self.usr_f_fullname = QLineEdit()
         self.usr_f_fullname.setFixedHeight(34)
@@ -464,7 +474,7 @@ class ManagerDashboard(SupervisorDashboard):
 
         self.usr_f_active = QCheckBox("Active")
         self.usr_f_active.setChecked(True)
-        self.usr_f_active.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+        self.usr_f_active.setStyleSheet("color: #94a3b8; font-size: 13px;")
 
         for lbl_text, widget in [
             ("Full Name", self.usr_f_fullname),
@@ -482,7 +492,7 @@ class ManagerDashboard(SupervisorDashboard):
 
         # Feedback label
         self.usr_feedback = QLabel("")
-        self.usr_feedback.setStyleSheet("color: #3dd68c; font-size: 11px; font-weight: 600;")
+        self.usr_feedback.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 600;")
         self.usr_feedback.setWordWrap(True)
         self.usr_feedback.setAlignment(Qt.AlignmentFlag.AlignCenter)
         rl.addWidget(self.usr_feedback)
@@ -544,7 +554,7 @@ class ManagerDashboard(SupervisorDashboard):
     def _usr_populate(self, users):
         tbl = self.usr_table
         tbl.setRowCount(0)
-        role_colors = {"cashier": "#60a5fa", "supervisor": "#fcd34d", "manager": "#f87171"}
+        role_colors = {"cashier": "#60a5fa", "supervisor": "#fcd34d", "manager": "#ef4444"}
         for u in users:
             row = tbl.rowCount()
             tbl.insertRow(row)
@@ -555,12 +565,12 @@ class ManagerDashboard(SupervisorDashboard):
 
             user_item   = QTableWidgetItem(u["username"])
             role_item   = QTableWidgetItem(u["role"].capitalize())
-            role_item.setForeground(QColor(role_colors.get(u["role"], "#c9d1d9")))
+            role_item.setForeground(QColor(role_colors.get(u["role"], "#94a3b8")))
             role_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
             status_text = "Active" if u["is_active"] else "Inactive"
             status_item = QTableWidgetItem(status_text)
-            status_item.setForeground(QColor("#3dd68c" if u["is_active"] else "#f87171"))
+            status_item.setForeground(QColor("#10b981" if u["is_active"] else "#ef4444"))
             status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
             # Edit button cell
@@ -629,11 +639,11 @@ class ManagerDashboard(SupervisorDashboard):
         is_active = 1 if self.usr_f_active.isChecked() else 0
 
         if not full_name or not username:
-            self.usr_feedback.setStyleSheet("color: #f87171; font-size: 11px; font-weight: 600;")
+            self.usr_feedback.setStyleSheet("color: #ef4444; font-size: 11px; font-weight: 600;")
             self.usr_feedback.setText("Full name and username are required.")
             return
         if self._usr_editing_id is None and not password:
-            self.usr_feedback.setStyleSheet("color: #f87171; font-size: 11px; font-weight: 600;")
+            self.usr_feedback.setStyleSheet("color: #ef4444; font-size: 11px; font-weight: 600;")
             self.usr_feedback.setText("Password required for new user.")
             return
 
@@ -661,12 +671,12 @@ class ManagerDashboard(SupervisorDashboard):
                 msg = f"User '{full_name}' updated."
             conn.commit()
             conn.close()
-            self.usr_feedback.setStyleSheet("color: #3dd68c; font-size: 11px; font-weight: 600;")
+            self.usr_feedback.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 600;")
             self.usr_feedback.setText(msg)
             self._usr_load()
             self._usr_new_form()
         except Exception as e:
-            self.usr_feedback.setStyleSheet("color: #f87171; font-size: 11px; font-weight: 600;")
+            self.usr_feedback.setStyleSheet("color: #ef4444; font-size: 11px; font-weight: 600;")
             self.usr_feedback.setText(str(e))
 
     def _usr_delete(self):
@@ -697,7 +707,7 @@ class ManagerDashboard(SupervisorDashboard):
 
     def _build_business_tab(self):
         w = QWidget()
-        w.setStyleSheet("background-color: #161b22;")
+        w.setStyleSheet("background-color: #0d1f2d;")
         main = QHBoxLayout(w)
         main.setContentsMargins(12, 12, 12, 12)
         main.setSpacing(12)
@@ -710,10 +720,10 @@ class ManagerDashboard(SupervisorDashboard):
 
     def _build_biz_info_panel(self):
         panel = QFrame()
-        panel.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        panel.setStyleSheet("background: #0b1120; border-radius: 8px;")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
         title = QLabel("BUSINESS INFORMATION")
         title.setStyleSheet(_SECTION_LBL)
@@ -725,7 +735,7 @@ class ManagerDashboard(SupervisorDashboard):
         form = QFormLayout()
         form.setSpacing(10)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        lbl_s = "color: #8b949e; font-size: 12px;"
+        lbl_s = "color: #64748b; font-size: 12px;"
 
         self.biz_name    = QLineEdit(); self.biz_name.setFixedHeight(34); self.biz_name.setStyleSheet(_INPUT); self.biz_name.setPlaceholderText("Business name")
         self.biz_address = QLineEdit(); self.biz_address.setFixedHeight(34); self.biz_address.setStyleSheet(_INPUT); self.biz_address.setPlaceholderText("Address")
@@ -745,7 +755,7 @@ class ManagerDashboard(SupervisorDashboard):
         layout.addStretch()
 
         self.biz_info_feedback = QLabel("")
-        self.biz_info_feedback.setStyleSheet("color: #3dd68c; font-size: 11px; font-weight: 600;")
+        self.biz_info_feedback.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 600;")
         self.biz_info_feedback.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.biz_info_feedback)
 
@@ -789,10 +799,10 @@ class ManagerDashboard(SupervisorDashboard):
             ))
             conn.commit()
             conn.close()
-            self.biz_info_feedback.setStyleSheet("color: #3dd68c; font-size: 11px; font-weight: 600;")
+            self.biz_info_feedback.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 600;")
             self.biz_info_feedback.setText("✓ Business info saved.")
         except Exception as e:
-            self.biz_info_feedback.setStyleSheet("color: #f87171; font-size: 11px; font-weight: 600;")
+            self.biz_info_feedback.setStyleSheet("color: #ef4444; font-size: 11px; font-weight: 600;")
             self.biz_info_feedback.setText(str(e))
 
     # ── Settings panel (GCT, discount levels, product groups) ─────────
@@ -800,7 +810,7 @@ class ManagerDashboard(SupervisorDashboard):
     def _build_biz_settings_panel(self):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; } QScrollBar:vertical { background: #161b22; width: 6px; } QScrollBar::handle:vertical { background: #30363d; border-radius: 3px; }")
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; } QScrollBar:vertical { background: #0d1f2d; width: 6px; } QScrollBar::handle:vertical { background: #1e3a5f; border-radius: 3px; }")
 
         container = QWidget()
         container.setStyleSheet("background: transparent;")
@@ -822,7 +832,7 @@ class ManagerDashboard(SupervisorDashboard):
 
     def _build_gct_panel(self):
         panel = QFrame()
-        panel.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        panel.setStyleSheet("background: #0b1120; border-radius: 8px;")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(10)
@@ -836,7 +846,7 @@ class ManagerDashboard(SupervisorDashboard):
 
         row = QHBoxLayout()
         lbl = QLabel("GCT %:")
-        lbl.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+        lbl.setStyleSheet("color: #94a3b8; font-size: 13px;")
 
         self.gct_spin = QDoubleSpinBox()
         self.gct_spin.setFixedHeight(34)
@@ -846,7 +856,7 @@ class ManagerDashboard(SupervisorDashboard):
         self.gct_spin.setStyleSheet(_INPUT)
 
         self.gct_feedback = QLabel("")
-        self.gct_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+        self.gct_feedback.setStyleSheet("color: #10b981; font-size: 11px;")
 
         save_btn = QPushButton("Save")
         save_btn.setFixedHeight(34)
@@ -880,10 +890,10 @@ class ManagerDashboard(SupervisorDashboard):
             conn.execute("UPDATE business_info SET tax_percent=? WHERE id=1", (self.gct_spin.value(),))
             conn.commit()
             conn.close()
-            self.gct_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+            self.gct_feedback.setStyleSheet("color: #10b981; font-size: 11px;")
             self.gct_feedback.setText("✓ GCT rate saved.")
         except Exception as e:
-            self.gct_feedback.setStyleSheet("color: #f87171; font-size: 11px;")
+            self.gct_feedback.setStyleSheet("color: #ef4444; font-size: 11px;")
             self.gct_feedback.setText(str(e))
 
             self.gct_feedback.setText(str(e))
@@ -892,7 +902,7 @@ class ManagerDashboard(SupervisorDashboard):
 
     def _build_case_profit_panel(self):
         panel = QFrame()
-        panel.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        panel.setStyleSheet("background: #0b1120; border-radius: 8px;")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(10)
@@ -908,13 +918,13 @@ class ManagerDashboard(SupervisorDashboard):
             "Case cost = single item cost × case quantity.\n"
             "Selling price = case cost × (1 + case profit %)."
         )
-        desc.setStyleSheet("color: #8b949e; font-size: 11px;")
+        desc.setStyleSheet("color: #64748b; font-size: 11px;")
         desc.setWordWrap(True)
         layout.addWidget(desc)
 
         row = QHBoxLayout()
         lbl = QLabel("Case Profit %:")
-        lbl.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+        lbl.setStyleSheet("color: #94a3b8; font-size: 13px;")
 
         self.case_profit_spin = QDoubleSpinBox()
         self.case_profit_spin.setFixedHeight(34)
@@ -924,7 +934,7 @@ class ManagerDashboard(SupervisorDashboard):
         self.case_profit_spin.setStyleSheet(_INPUT)
 
         self.case_profit_feedback = QLabel("")
-        self.case_profit_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+        self.case_profit_feedback.setStyleSheet("color: #10b981; font-size: 11px;")
 
         save_btn = QPushButton("Save")
         save_btn.setFixedHeight(34); save_btn.setFixedWidth(70)
@@ -960,10 +970,10 @@ class ManagerDashboard(SupervisorDashboard):
                 "UPDATE business_info SET case_profit_percent=? WHERE id=1", (new_pct,)
             )
             conn.commit(); conn.close()
-            self.case_profit_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+            self.case_profit_feedback.setStyleSheet("color: #10b981; font-size: 11px;")
             self.case_profit_feedback.setText("✓ Case profit saved.")
         except Exception as e:
-            self.case_profit_feedback.setStyleSheet("color: #f87171; font-size: 11px;")
+            self.case_profit_feedback.setStyleSheet("color: #ef4444; font-size: 11px;")
             self.case_profit_feedback.setText(str(e))
 
     # ── Printer settings panel ────────────────────────────────────────
@@ -971,7 +981,7 @@ class ManagerDashboard(SupervisorDashboard):
     def _build_printer_settings_panel(self):
         from PyQt6.QtWidgets import QComboBox, QGroupBox
         panel = QFrame()
-        panel.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        panel.setStyleSheet("background: #0b1120; border-radius: 8px;")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(10)
@@ -985,8 +995,8 @@ class ManagerDashboard(SupervisorDashboard):
         def row_layout(label_text, widget):
             r = QHBoxLayout()
             lbl = QLabel(label_text)
-            lbl.setFixedWidth(160)
-            lbl.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+            lbl.setMinimumWidth(130)
+            lbl.setStyleSheet("color: #94a3b8; font-size: 13px;")
             r.addWidget(lbl)
             r.addWidget(widget, stretch=1)
             return r
@@ -1038,7 +1048,7 @@ class ManagerDashboard(SupervisorDashboard):
 
         # Feedback + Save
         self.ps_feedback = QLabel("")
-        self.ps_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+        self.ps_feedback.setStyleSheet("color: #10b981; font-size: 11px;")
 
         save_btn = QPushButton("Save Printer Settings")
         save_btn.setFixedHeight(34)
@@ -1143,17 +1153,17 @@ class ManagerDashboard(SupervisorDashboard):
             conn.commit()
             conn.close()
 
-            self.ps_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+            self.ps_feedback.setStyleSheet("color: #10b981; font-size: 11px;")
             self.ps_feedback.setText("✓ Printer settings saved.")
         except Exception as e:
-            self.ps_feedback.setStyleSheet("color: #f87171; font-size: 11px;")
+            self.ps_feedback.setStyleSheet("color: #ef4444; font-size: 11px;")
             self.ps_feedback.setText(str(e))
 
     # ── Discount levels panel ─────────────────────────────────────────
 
     def _build_discount_panel(self):
         panel = QFrame()
-        panel.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        panel.setStyleSheet("background: #0b1120; border-radius: 8px;")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(10)
@@ -1186,7 +1196,7 @@ class ManagerDashboard(SupervisorDashboard):
         layout.addWidget(self.disc_table)
 
         self.disc_feedback = QLabel("")
-        self.disc_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+        self.disc_feedback.setStyleSheet("color: #10b981; font-size: 11px;")
         layout.addWidget(self.disc_feedback)
 
         save_btn = QPushButton("💾  Save Discount Levels")
@@ -1286,18 +1296,18 @@ class ManagerDashboard(SupervisorDashboard):
                     )
             conn.commit()
             conn.close()
-            self.disc_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+            self.disc_feedback.setStyleSheet("color: #10b981; font-size: 11px;")
             self.disc_feedback.setText("✓ Discount levels saved.")
             self._disc_load()
         except Exception as e:
-            self.disc_feedback.setStyleSheet("color: #f87171; font-size: 11px;")
+            self.disc_feedback.setStyleSheet("color: #ef4444; font-size: 11px;")
             self.disc_feedback.setText(str(e))
 
     # ── Product groups panel ──────────────────────────────────────────
 
     def _build_groups_panel(self):
         panel = QFrame()
-        panel.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        panel.setStyleSheet("background: #0b1120; border-radius: 8px;")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(10)
@@ -1329,7 +1339,7 @@ class ManagerDashboard(SupervisorDashboard):
         layout.addWidget(self.grp_table)
 
         self.grp_feedback = QLabel("")
-        self.grp_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+        self.grp_feedback.setStyleSheet("color: #10b981; font-size: 11px;")
         layout.addWidget(self.grp_feedback)
 
         save_btn = QPushButton("💾  Save Groups")
@@ -1420,11 +1430,11 @@ class ManagerDashboard(SupervisorDashboard):
                     )
             conn.commit()
             conn.close()
-            self.grp_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+            self.grp_feedback.setStyleSheet("color: #10b981; font-size: 11px;")
             self.grp_feedback.setText("✓ Groups saved.")
             self._grp_load()
         except Exception as e:
-            self.grp_feedback.setStyleSheet("color: #f87171; font-size: 11px;")
+            self.grp_feedback.setStyleSheet("color: #ef4444; font-size: 11px;")
             self.grp_feedback.setText(str(e))
 
     # ================================================================
@@ -1433,7 +1443,7 @@ class ManagerDashboard(SupervisorDashboard):
 
     def _build_quickkeys_tab(self):
         w = QWidget()
-        w.setStyleSheet("background-color: #161b22;")
+        w.setStyleSheet("background-color: #0d1f2d;")
         outer = QVBoxLayout(w)
         outer.setContentsMargins(16, 16, 16, 16)
         outer.setSpacing(12)
@@ -1445,7 +1455,7 @@ class ManagerDashboard(SupervisorDashboard):
             "Start typing a product name to search — select from the results."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #8b949e; font-size: 13px;")
+        desc.setStyleSheet("color: #64748b; font-size: 13px;")
         ref_btn = QPushButton("↻  Refresh")
         ref_btn.setFixedHeight(32)
         ref_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1457,7 +1467,7 @@ class ManagerDashboard(SupervisorDashboard):
 
         # Grid of 8 rows  — each row: F-label + _ProductSearchWidget
         grid = QFrame()
-        grid.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        grid.setStyleSheet("background: #0b1120; border-radius: 8px;")
         gl = QVBoxLayout(grid)
         gl.setContentsMargins(20, 16, 20, 16)
         gl.setSpacing(10)
@@ -1471,7 +1481,7 @@ class ManagerDashboard(SupervisorDashboard):
             key_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             key_lbl.setStyleSheet(
                 "color: #ffffff; font-size: 14px; font-weight: 700;"
-                "background: #21262d; border: 1px solid #30363d;"
+                "background: #1e293b; border: 1px solid #1e3a5f;"
                 "border-radius: 5px; padding: 4px 0;"
             )
 
@@ -1486,11 +1496,11 @@ class ManagerDashboard(SupervisorDashboard):
         outer.addWidget(grid)
 
         self.qk_feedback = QLabel("")
-        self.qk_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+        self.qk_feedback.setStyleSheet("color: #10b981; font-size: 11px;")
 
         save_btn = QPushButton("💾  Save Quick Keys")
-        save_btn.setFixedHeight(36)
-        save_btn.setFixedWidth(200)
+        save_btn.setMinimumHeight(34)
+        save_btn.setMinimumWidth(160)
         save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         save_btn.setStyleSheet(_BTN_BLUE)
         save_btn.clicked.connect(self._qk_save)
@@ -1548,10 +1558,10 @@ class ManagerDashboard(SupervisorDashboard):
                     )
             conn.commit()
             conn.close()
-            self.qk_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+            self.qk_feedback.setStyleSheet("color: #10b981; font-size: 11px;")
             self.qk_feedback.setText("✓ Quick keys saved. Cashiers will see changes on next login.")
         except Exception as e:
-            self.qk_feedback.setStyleSheet("color: #f87171; font-size: 11px;")
+            self.qk_feedback.setStyleSheet("color: #ef4444; font-size: 11px;")
             self.qk_feedback.setText(str(e))
 
     # ================================================================
@@ -1560,14 +1570,14 @@ class ManagerDashboard(SupervisorDashboard):
 
     def _build_sync_tab(self):
         w = QWidget()
-        w.setStyleSheet("background-color: #161b22;")
+        w.setStyleSheet("background-color: #0d1f2d;")
         outer = QVBoxLayout(w)
         outer.setContentsMargins(16, 16, 16, 16)
         outer.setSpacing(12)
 
         # ── Connection settings ──────────────────────────────────────
         cfg_frame = QFrame()
-        cfg_frame.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        cfg_frame.setStyleSheet("background: #0b1120; border-radius: 8px;")
         cfg_l = QVBoxLayout(cfg_frame)
         cfg_l.setContentsMargins(20, 16, 20, 16)
         cfg_l.setSpacing(10)
@@ -1579,14 +1589,14 @@ class ManagerDashboard(SupervisorDashboard):
         cfg_l.addWidget(sep)
 
         self.sync_enabled = QCheckBox("Enable PostgreSQL sync")
-        self.sync_enabled.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+        self.sync_enabled.setStyleSheet("color: #94a3b8; font-size: 13px;")
         cfg_l.addWidget(self.sync_enabled)
 
         def cfg_row(label, widget):
             r = QHBoxLayout()
             lbl = QLabel(label)
-            lbl.setFixedWidth(100)
-            lbl.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+            lbl.setMinimumWidth(80)
+            lbl.setStyleSheet("color: #94a3b8; font-size: 13px;")
             r.addWidget(lbl); r.addWidget(widget, stretch=1)
             return r
 
@@ -1616,13 +1626,13 @@ class ManagerDashboard(SupervisorDashboard):
         cfg_l.addLayout(cfg_btn_row)
 
         self.sync_cfg_status = QLabel("")
-        self.sync_cfg_status.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self.sync_cfg_status.setStyleSheet("color: #64748b; font-size: 11px;")
         self.sync_cfg_status.setWordWrap(True)
         cfg_l.addWidget(self.sync_cfg_status)
 
         # ── Sync actions ─────────────────────────────────────────────
         act_frame = QFrame()
-        act_frame.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        act_frame.setStyleSheet("background: #0b1120; border-radius: 8px;")
         act_l = QVBoxLayout(act_frame)
         act_l.setContentsMargins(20, 16, 20, 16)
         act_l.setSpacing(10)
@@ -1639,7 +1649,7 @@ class ManagerDashboard(SupervisorDashboard):
             "Transaction history is never overwritten on pull."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #8b949e; font-size: 12px;")
+        desc.setStyleSheet("color: #64748b; font-size: 12px;")
         act_l.addWidget(desc)
 
         act_btn_row = QHBoxLayout()
@@ -1649,10 +1659,10 @@ class ManagerDashboard(SupervisorDashboard):
         sync_btn   = QPushButton("🔄  Full Sync")
 
         for b, slot, bg in [
-            (schema_btn, self._sync_schema,  "#21262d"),
-            (push_btn,   self._sync_push,    "#1a56db"),
-            (pull_btn,   self._sync_pull,    "#14532d"),
-            (sync_btn,   self._sync_full,    "#7c3aed"),
+            (schema_btn, self._sync_schema,  "#1e293b"),
+            (push_btn,   self._sync_push,    "#f59e0b"),
+            (pull_btn,   self._sync_pull,    "#10b98122"),
+            (sync_btn,   self._sync_full,    "#f59e0b"),
         ]:
             b.setFixedHeight(34)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1664,12 +1674,12 @@ class ManagerDashboard(SupervisorDashboard):
 
         self.sync_result = QLabel("")
         self.sync_result.setWordWrap(True)
-        self.sync_result.setStyleSheet("color: #c9d1d9; font-size: 11px; font-family: monospace;")
+        self.sync_result.setStyleSheet("color: #94a3b8; font-size: 11px; font-family: monospace;")
         act_l.addWidget(self.sync_result)
 
         # ── Sync log ──────────────────────────────────────────────────
         log_frame = QFrame()
-        log_frame.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        log_frame.setStyleSheet("background: #0b1120; border-radius: 8px;")
         log_l = QVBoxLayout(log_frame)
         log_l.setContentsMargins(12, 12, 12, 12)
         log_l.setSpacing(6)
@@ -1694,7 +1704,7 @@ class ManagerDashboard(SupervisorDashboard):
         self.sync_log_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.sync_log_table.verticalHeader().setVisible(False)
         self.sync_log_table.setShowGrid(False)
-        self.sync_log_table.setFixedHeight(160)
+        self.sync_log_table.setMinimumHeight(120)
         self.sync_log_table.setStyleSheet(_TABLE)
         log_l.addWidget(self.sync_log_table)
 
@@ -1725,6 +1735,7 @@ class ManagerDashboard(SupervisorDashboard):
 
     def _sync_save_config(self):
         """Write updated connection settings back to config.py."""
+        import re
         try:
             import config as _cfg
             from pathlib import Path
@@ -1750,10 +1761,10 @@ class ManagerDashboard(SupervisorDashboard):
             except ValueError:
                 pass
             cfg_path.write_text(text)
-            self.sync_cfg_status.setStyleSheet("color: #3dd68c; font-size: 11px;")
+            self.sync_cfg_status.setStyleSheet("color: #10b981; font-size: 11px;")
             self.sync_cfg_status.setText("✓ Config saved. Restart required for USE_POSTGRES to take effect.")
         except Exception as e:
-            self.sync_cfg_status.setStyleSheet("color: #f87171; font-size: 11px;")
+            self.sync_cfg_status.setStyleSheet("color: #ef4444; font-size: 11px;")
             self.sync_cfg_status.setText(f"Save failed: {e}")
 
     def _sync_run(self, action, label):
@@ -1774,7 +1785,7 @@ class ManagerDashboard(SupervisorDashboard):
         from db.sync import SyncManager
         sm  = SyncManager()
         ok, msg = action(sm)
-        color = "#3dd68c" if ok else "#f87171"
+        color = "#10b981" if ok else "#ef4444"
         self.sync_result.setStyleSheet(f"color: {color}; font-size: 11px; font-family: monospace;")
         self.sync_result.setText(msg)
         self._sync_load_log()
@@ -1802,18 +1813,18 @@ class ManagerDashboard(SupervisorDashboard):
             entries = []
         tbl = self.sync_log_table
         tbl.setRowCount(len(entries))
-        ec = {"push": "#4493f8", "pull": "#3dd68c", "error": "#f87171",
+        ec = {"push": "#4493f8", "pull": "#10b981", "error": "#ef4444",
               "test": "#a78bfa", "sync": "#f59e0b"}
         for i, e in enumerate(entries):
             ti = QTableWidgetItem(e["time"] or "")
-            ti.setForeground(QColor("#8b949e"))
+            ti.setForeground(QColor("#64748b"))
             ev = QTableWidgetItem(e["event"] or "")
-            ev.setForeground(QColor(ec.get(e["event"], "#c9d1d9")))
+            ev.setForeground(QColor(ec.get(e["event"], "#94a3b8")))
             tb = QTableWidgetItem(e["table"] or "")
             ri = QTableWidgetItem(str(e["rows"] or ""))
             ri.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             mi = QTableWidgetItem(e["message"] or "")
-            mi.setForeground(QColor("#8b949e"))
+            mi.setForeground(QColor("#64748b"))
             for col, item in enumerate([ti, ev, tb, ri, mi]):
                 tbl.setItem(i, col, item)
             tbl.setRowHeight(i, 28)

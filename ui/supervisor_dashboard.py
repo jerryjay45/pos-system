@@ -24,8 +24,9 @@ from db import get_products_conn, get_users_conn, get_transactions_conn, get_bus
 
 class SupervisorDashboard(BaseWindow):
 
-    def __init__(self, user_id, full_name, role="supervisor"):
+    def __init__(self, user_id, full_name, role="supervisor", app=None):
         super().__init__()
+        self._app      = app
         self.user_id   = user_id
         self.full_name = full_name
         self.role      = role
@@ -47,7 +48,7 @@ class SupervisorDashboard(BaseWindow):
 
     def _build_ui(self):
         root = QWidget()
-        root.setStyleSheet("background-color: #0d1117;")
+        root.setStyleSheet("background-color: #0b1120;")
         self.setCentralWidget(root)
 
         layout = QVBoxLayout(root)
@@ -60,29 +61,36 @@ class SupervisorDashboard(BaseWindow):
     # ── Top bar ──────────────────────────────────────────────────────
     def _build_topbar(self):
         bar = QFrame()
-        bar.setFixedHeight(52)
-        bar.setStyleSheet("background-color: #1a56db; border-radius: 10px;")
+        bar.setMinimumHeight(44)
+        bar.setMaximumHeight(56)
+        # Supervisor: dark olive-green topbar — distinct from cashier (blue) and manager (purple)
+        bar.setStyleSheet("background-color: #0a1f0e; border-radius: 10px;")
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(20, 0, 20, 0)
+        layout.setSpacing(10)
 
         left = QLabel(f"POS System  |  Supervisor:  {self.full_name}")
-        left.setStyleSheet("color: #ffffff; font-size: 15px; font-weight: 600;")
+        left.setStyleSheet("color: #bbf7d0; font-size: 14px; font-weight: 600; letter-spacing: 0.3px;")
 
         self.clock_label = QLabel()
         self.clock_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.clock_label.setStyleSheet("color: #ffffff; font-size: 14px;")
+        self.clock_label.setStyleSheet("color: #86efac; font-size: 13px;")
+
+        from ui.theme_toggle import ZoomWidget
+        zoom_w = ZoomWidget(self._app)
 
         logout_btn = QPushButton("Logout  ↗")
-        logout_btn.setFixedSize(120, 36)
+        logout_btn.setMinimumWidth(100)
+        logout_btn.setMinimumHeight(32)
         logout_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         logout_btn.setStyleSheet("""
             QPushButton {
-                background-color: #111827; color: #ffffff;
-                border: none; border-radius: 18px;
+                background-color: #052e16; color: #bbf7d0;
+                border: 1.5px solid #166534; border-radius: 18px;
                 font-size: 13px; font-weight: 700;
             }
-            QPushButton:hover   { background-color: #1f2937; }
-            QPushButton:pressed { background-color: #374151; }
+            QPushButton:hover   { background-color: #14532d; border-color: #22c55e; }
+            QPushButton:pressed { background-color: #166534; }
         """)
         logout_btn.clicked.connect(self._handle_logout)
 
@@ -90,6 +98,8 @@ class SupervisorDashboard(BaseWindow):
         layout.addStretch()
         layout.addWidget(self.clock_label)
         layout.addStretch()
+        layout.addWidget(zoom_w)
+        layout.addSpacing(8)
         layout.addWidget(logout_btn)
         return bar
 
@@ -98,14 +108,14 @@ class SupervisorDashboard(BaseWindow):
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
             QTabWidget::pane {
-                background-color: #161b22;
+                background-color: #0d1f2d;
                 border: none;
                 border-radius: 0 8px 8px 8px;
             }
             QTabBar::tab {
-                background-color: #21262d;
-                color: #8b949e;
-                border: 1px solid #30363d;
+                background-color: #1e293b;
+                color: #64748b;
+                border: 1px solid #1e3a5f;
                 border-bottom: none;
                 border-radius: 6px 6px 0 0;
                 padding: 8px 20px;
@@ -113,11 +123,11 @@ class SupervisorDashboard(BaseWindow):
                 margin-right: 4px;
             }
             QTabBar::tab:selected {
-                background-color: #161b22;
+                background-color: #0d1f2d;
                 color: #ffffff;
                 font-weight: 700;
             }
-            QTabBar::tab:hover { background-color: #30363d; color: #ffffff; }
+            QTabBar::tab:hover { background-color: #1e3a5f; color: #ffffff; }
         """)
 
         self.tabs.addTab(self._build_products_tab(),      "📦  Products")
@@ -125,6 +135,7 @@ class SupervisorDashboard(BaseWindow):
         self.tabs.addTab(self._build_transactions_tab(),  "🧾  Transactions")
         self.tabs.addTab(self._build_void_tab(),          "↩  Void / Refund")
         self.tabs.addTab(self._build_labels_tab(),        "🏷  Labels")
+        self.tabs.addTab(self._build_quickkeys_tab(),     "⌨  Quick Keys")
         self.tabs.setCurrentIndex(0)
         return self.tabs
 
@@ -135,62 +146,63 @@ class SupervisorDashboard(BaseWindow):
 
     def _build_reports_tab(self):
         w = QWidget()
-        w.setStyleSheet("background-color: #161b22;")
+        w.setStyleSheet("background-color: #0d1f2d;")
         layout = QHBoxLayout(w)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
         _btn_outline = """
             QPushButton {
-                background: transparent; color: #c9d1d9;
-                border: 1.5px solid #30363d; border-radius: 17px;
+                background: transparent; color: #94a3b8;
+                border: 1.5px solid #1e3a5f; border-radius: 17px;
                 font-size: 12px; font-weight: 600; padding: 0 14px;
             }
-            QPushButton:hover  { background: #21262d; color: #ffffff; }
-            QPushButton:pressed{ background: #30363d; }
-            QPushButton:disabled{ color: #3d444d; border-color: #21262d; }
+            QPushButton:hover  { background: #1e293b; color: #ffffff; }
+            QPushButton:pressed{ background: #1e3a5f; }
+            QPushButton:disabled{ color: #334155; border-color: #1e293b; }
         """
         _btn_red = """
             QPushButton {
-                background: #7f1d1d; color: #fca5a5;
+                background: #ef444422; color: #fca5a5;
                 border: none; border-radius: 17px;
                 font-size: 12px; font-weight: 600; padding: 0 14px;
             }
-            QPushButton:hover  { background: #991b1b; }
+            QPushButton:hover  { background: #dc2626; }
             QPushButton:pressed{ background: #b91c1c; }
             QPushButton:disabled{ background: #2d1515; color: #6b3030; }
         """
         _btn_green = """
             QPushButton {
-                background: #14532d; color: #86efac;
+                background: #10b98122; color: #6ee7b7;
                 border: none; border-radius: 17px;
                 font-size: 12px; font-weight: 600; padding: 0 14px;
             }
-            QPushButton:hover  { background: #166534; }
+            QPushButton:hover  { background: #059669; }
             QPushButton:pressed{ background: #15803d; }
         """
 
         # ── Left panel: cashier list ─────────────────────────────────
         left = QFrame()
-        left.setFixedWidth(265)
-        left.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        left.setMinimumWidth(220)
+        left.setMaximumWidth(300)
+        left.setStyleSheet("background: #0b1120; border-radius: 8px;")
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(10, 10, 10, 10)
         left_layout.setSpacing(8)
 
         lbl_cashiers = QLabel("CASHIERS")
-        lbl_cashiers.setStyleSheet("color: #8b949e; font-size: 10px; font-weight: 700; letter-spacing: 1px;")
+        lbl_cashiers.setStyleSheet("color: #64748b; font-size: 10px; font-weight: 700; letter-spacing: 1px;")
 
         self.rpt_cashier_search = QLineEdit()
         self.rpt_cashier_search.setPlaceholderText("\U0001f50d  Search cashier\u2026")
         self.rpt_cashier_search.setFixedHeight(34)
         self.rpt_cashier_search.setStyleSheet("""
             QLineEdit {
-                background-color: #161b22; color: #ffffff;
-                border: 1.5px solid #30363d; border-radius: 17px;
+                background-color: #0d1f2d; color: #ffffff;
+                border: 1.5px solid #1e3a5f; border-radius: 17px;
                 padding: 0 12px; font-size: 12px;
             }
-            QLineEdit:focus { border-color: #1a56db; }
+            QLineEdit:focus { border-color: #f59e0b; }
         """)
         self.rpt_cashier_search.textChanged.connect(self._rpt_filter_cashiers)
 
@@ -204,12 +216,12 @@ class SupervisorDashboard(BaseWindow):
         self.rpt_cashier_list.verticalHeader().setVisible(False)
         self.rpt_cashier_list.setShowGrid(False)
         self.rpt_cashier_list.setStyleSheet("""
-            QTableWidget { background: transparent; color: #c9d1d9; border: none; font-size: 12px; }
-            QTableWidget::item { padding: 8px; border-bottom: 1px solid #21262d; }
-            QTableWidget::item:selected { background-color: #1a56db33; color: #ffffff; border-left: 3px solid #1a56db; }
-            QHeaderView::section { background: #0d1117; color: #8b949e; border: none;
+            QTableWidget { background: transparent; color: #94a3b8; border: none; font-size: 12px; }
+            QTableWidget::item { padding: 8px; border-bottom: 1px solid #1e293b; }
+            QTableWidget::item:selected { background-color: #f59e0b55; color: #fbbf24; border-left: 3px solid #f59e0b; }
+            QHeaderView::section { background: #0b1120; color: #64748b; border: none;
                                    padding: 6px 8px; font-size: 11px; font-weight: 700;
-                                   border-bottom: 1px solid #21262d; }
+                                   border-bottom: 1px solid #1e293b; }
         """)
         self.rpt_cashier_list.selectionModel().selectionChanged.connect(self._rpt_on_cashier_selected)
 
@@ -219,7 +231,7 @@ class SupervisorDashboard(BaseWindow):
 
         # ── Right panel ──────────────────────────────────────────────
         right = QFrame()
-        right.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        right.setStyleSheet("background: #0b1120; border-radius: 8px;")
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(14, 14, 14, 14)
         right_layout.setSpacing(10)
@@ -228,19 +240,20 @@ class SupervisorDashboard(BaseWindow):
         cards_row = QHBoxLayout()
         self.rpt_cards = {}
         for key, label, color in [
-            ("total_sales",  "TOTAL SALES",   "#3dd68c"),
-            ("total_gct",    "TOTAL GCT",     "#3dd68c"),
+            ("total_sales",  "TOTAL SALES",   "#10b981"),
+            ("total_gct",    "TOTAL GCT",     "#10b981"),
             ("transactions", "TRANSACTIONS",  "#a78bfa"),
             ("discounts",    "DISCOUNTS",     "#f59e0b"),
         ]:
             card = QFrame()
-            card.setFixedHeight(72)
-            card.setStyleSheet("background: #161b22; border-radius: 8px;")
+            card.setMinimumHeight(60)
+            card.setMaximumHeight(88)
+            card.setStyleSheet("background: #0d1f2d; border-radius: 8px;")
             cl = QVBoxLayout(card)
             cl.setContentsMargins(14, 8, 14, 8)
             cl.setSpacing(2)
             t = QLabel(label)
-            t.setStyleSheet("color: #8b949e; font-size: 10px; font-weight: 700;")
+            t.setStyleSheet("color: #64748b; font-size: 10px; font-weight: 700;")
             v = QLabel("\u2014")
             v.setStyleSheet(f"color: {color}; font-size: 20px; font-weight: 700;")
             cl.addWidget(t)
@@ -254,19 +267,19 @@ class SupervisorDashboard(BaseWindow):
         session_bar.setSpacing(8)
 
         self.rpt_session_header = QLabel("Select a cashier to view sessions")
-        self.rpt_session_header.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: 700;")
+        self.rpt_session_header.setStyleSheet("color: #94a3b8; font-size: 13px; font-weight: 700;")
 
         self.rpt_search_bar = QLineEdit()
         self.rpt_search_bar.setPlaceholderText("\U0001f50d  Date or session #\u2026")
-        self.rpt_search_bar.setFixedHeight(34)
-        self.rpt_search_bar.setFixedWidth(200)
+        self.rpt_search_bar.setMinimumHeight(30)
+        self.rpt_search_bar.setMinimumWidth(160)
         self.rpt_search_bar.setStyleSheet("""
             QLineEdit {
-                background-color: #161b22; color: #ffffff;
-                border: 1.5px solid #30363d; border-radius: 17px;
+                background-color: #0d1f2d; color: #ffffff;
+                border: 1.5px solid #1e3a5f; border-radius: 17px;
                 padding: 0 12px; font-size: 12px;
             }
-            QLineEdit:focus { border-color: #1a56db; }
+            QLineEdit:focus { border-color: #f59e0b; }
         """)
         self.rpt_search_bar.textChanged.connect(self._rpt_filter_sessions)
 
@@ -321,11 +334,11 @@ class SupervisorDashboard(BaseWindow):
         self.rpt_session_list.verticalHeader().setVisible(False)
         self.rpt_session_list.setShowGrid(False)
         self.rpt_session_list.setStyleSheet("""
-            QTableWidget { background: transparent; color: #c9d1d9; border: none; font-size: 12px; }
-            QTableWidget::item { padding: 10px 8px; border-bottom: 1px solid #21262d; }
-            QTableWidget::item:selected { background-color: #1a56db33; color: #ffffff; }
-            QHeaderView::section { background: #0d1117; color: #8b949e; border: none; padding: 8px;
-                                   font-size: 11px; font-weight: 700; border-bottom: 1px solid #21262d; }
+            QTableWidget { background: transparent; color: #94a3b8; border: none; font-size: 12px; }
+            QTableWidget::item { padding: 10px 8px; border-bottom: 1px solid #1e293b; }
+            QTableWidget::item:selected { background-color: #f59e0b55; color: #fbbf24; }
+            QHeaderView::section { background: #0b1120; color: #64748b; border: none; padding: 8px;
+                                   font-size: 11px; font-weight: 700; border-bottom: 1px solid #1e293b; }
         """)
         self.rpt_session_list.selectionModel().selectionChanged.connect(self._rpt_on_session_selected)
 
@@ -424,7 +437,7 @@ class SupervisorDashboard(BaseWindow):
             display_name = ("● " if has_open else "") + c["cashier_name"]
             name_item = QTableWidgetItem(display_name)
             name_item.setData(Qt.ItemDataRole.UserRole, c["cashier_id"])
-            name_item.setForeground(QColor("#3dd68c" if has_open else "#c9d1d9"))
+            name_item.setForeground(QColor("#10b981" if has_open else "#94a3b8"))
             tbl.setItem(row, 0, name_item)
         tbl.resizeRowsToContents()
 
@@ -487,19 +500,19 @@ class SupervisorDashboard(BaseWindow):
 
             is_open = s["status"] == "open"
             status_item = QTableWidgetItem("  Open  " if is_open else "  Closed  ")
-            status_item.setForeground(QColor("#3dd68c" if is_open else "#8b949e"))
-            status_item.setBackground(QColor("#14532d" if is_open else "#21262d"))
+            status_item.setForeground(QColor("#10b981" if is_open else "#64748b"))
+            status_item.setBackground(QColor("#10b98122" if is_open else "#1e293b"))
             status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
             opened = self._fmt_dt(s["opened_at"])
             closed = self._fmt_dt(s["closed_at"]) if s["closed_at"] else "—"
             opened_item = QTableWidgetItem(opened)
             closed_item = QTableWidgetItem(closed)
-            opened_item.setForeground(QColor("#8b949e"))
-            closed_item.setForeground(QColor("#8b949e"))
+            opened_item.setForeground(QColor("#64748b"))
+            closed_item.setForeground(QColor("#64748b"))
 
             sales_item = QTableWidgetItem(f"$ {s['total_sales']:,.2f}")
-            sales_item.setForeground(QColor("#3dd68c"))
+            sales_item.setForeground(QColor("#10b981"))
             sales_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
             tbl.setItem(row, 0, num_item)
@@ -668,10 +681,10 @@ class SupervisorDashboard(BaseWindow):
 
     def _build_transactions_tab(self):
         w = QWidget()
-        w.setStyleSheet("background-color: #161b22;")
+        w.setStyleSheet("background-color: #0d1f2d;")
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
         # ── Search bar row ───────────────────────────────────────────
         search_row = QHBoxLayout()
@@ -681,36 +694,36 @@ class SupervisorDashboard(BaseWindow):
         self.tx_search.setFixedHeight(36)
         self.tx_search.setStyleSheet("""
             QLineEdit {
-                background-color: #0d1117; color: #ffffff;
-                border: 1.5px solid #30363d; border-radius: 18px;
+                background-color: #0b1120; color: #ffffff;
+                border: 1.5px solid #1e3a5f; border-radius: 18px;
                 padding: 0 16px; font-size: 13px;
             }
-            QLineEdit:focus { border-color: #1a56db; }
+            QLineEdit:focus { border-color: #f59e0b; }
         """)
         self.tx_search.returnPressed.connect(self._tx_search)
 
         self.tx_status_filter = QComboBox()
         self.tx_status_filter.addItems(["All Statuses", "Completed", "Voided", "Refunded"])
-        self.tx_status_filter.setFixedHeight(36)
-        self.tx_status_filter.setFixedWidth(150)
+        self.tx_status_filter.setMinimumHeight(32)
+        self.tx_status_filter.setMinimumWidth(130)
         self.tx_status_filter.setStyleSheet("""
             QComboBox {
-                background-color: #0d1117; color: #c9d1d9;
-                border: 1.5px solid #30363d; border-radius: 18px;
+                background-color: #0b1120; color: #94a3b8;
+                border: 1.5px solid #1e3a5f; border-radius: 18px;
                 padding: 0 12px; font-size: 12px;
             }
             QComboBox::drop-down { border: none; }
-            QComboBox QAbstractItemView { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; }
+            QComboBox QAbstractItemView { background: #0b1120; color: #94a3b8; border: 1px solid #1e3a5f; }
         """)
         self.tx_status_filter.currentIndexChanged.connect(lambda: None)  # no auto-search; use Search button
 
         btn_search = QPushButton("Search")
-        btn_search.setFixedHeight(36)
-        btn_search.setFixedWidth(90)
+        btn_search.setMinimumHeight(32)
+        btn_search.setMinimumWidth(80)
         btn_search.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_search.setStyleSheet("""
             QPushButton {
-                background-color: #1a56db; color: #ffffff;
+                background-color: #f59e0b; color: #ffffff;
                 border: none; border-radius: 18px;
                 font-size: 13px; font-weight: 600;
             }
@@ -720,13 +733,13 @@ class SupervisorDashboard(BaseWindow):
 
         _tx_btn_outline = """
             QPushButton {
-                background: transparent; color: #c9d1d9;
-                border: 1.5px solid #30363d; border-radius: 18px;
+                background: transparent; color: #94a3b8;
+                border: 1.5px solid #1e3a5f; border-radius: 18px;
                 font-size: 12px; font-weight: 600; padding: 0 14px;
             }
-            QPushButton:hover  { background: #21262d; color: #ffffff; }
-            QPushButton:pressed{ background: #30363d; }
-            QPushButton:disabled{ color: #3d444d; border-color: #21262d; }
+            QPushButton:hover  { background: #1e293b; color: #ffffff; }
+            QPushButton:pressed{ background: #1e3a5f; }
+            QPushButton:disabled{ color: #334155; border-color: #1e293b; }
         """
 
         self.tx_refresh_btn = QPushButton("↻  Refresh")
@@ -751,11 +764,11 @@ class SupervisorDashboard(BaseWindow):
 
         # ── Split: transaction list | detail panel ───────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setStyleSheet("QSplitter::handle { background: #30363d; width: 1px; }")
+        splitter.setStyleSheet("QSplitter::handle { background: #1e3a5f; width: 1px; }")
 
         # Left: transaction table
         left = QFrame()
-        left.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        left.setStyleSheet("background: #0b1120; border-radius: 8px;")
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
 
@@ -774,32 +787,33 @@ class SupervisorDashboard(BaseWindow):
         self.tx_table.verticalHeader().setVisible(False)
         self.tx_table.setShowGrid(False)
         self.tx_table.setStyleSheet("""
-            QTableWidget { background: transparent; color: #c9d1d9; border: none; font-size: 12px; }
-            QTableWidget::item { padding: 8px; border-bottom: 1px solid #21262d; }
-            QTableWidget::item:selected { background-color: #1a56db22; color: #ffffff; }
-            QHeaderView::section { background: #0d1117; color: #8b949e; border: none; padding: 8px;
-                                   font-size: 11px; font-weight: 700; border-bottom: 1px solid #21262d; }
+            QTableWidget { background: transparent; color: #94a3b8; border: none; font-size: 12px; }
+            QTableWidget::item { padding: 8px; border-bottom: 1px solid #1e293b; }
+            QTableWidget::item:selected { background-color: #f59e0b55; color: #fbbf24; }
+            QHeaderView::section { background: #0b1120; color: #64748b; border: none; padding: 8px;
+                                   font-size: 11px; font-weight: 700; border-bottom: 1px solid #1e293b; }
         """)
         self.tx_table.selectionModel().selectionChanged.connect(self._tx_on_row_selected)
         ll.addWidget(self.tx_table)
 
         # Right: detail panel
         right = QFrame()
-        right.setFixedWidth(320)
-        right.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        right.setMinimumWidth(260)
+        right.setMaximumWidth(380)
+        right.setStyleSheet("background: #0b1120; border-radius: 8px;")
         rl = QVBoxLayout(right)
         rl.setContentsMargins(14, 14, 14, 14)
         rl.setSpacing(8)
 
         self.tx_detail_title = QLabel("Select a transaction")
-        self.tx_detail_title.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: 700;")
+        self.tx_detail_title.setStyleSheet("color: #94a3b8; font-size: 13px; font-weight: 700;")
         self.tx_detail_meta = QLabel("")
-        self.tx_detail_meta.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self.tx_detail_meta.setStyleSheet("color: #64748b; font-size: 11px;")
         self.tx_detail_meta.setWordWrap(True)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #30363d;")
+        sep.setStyleSheet("color: #1e3a5f;")
 
         self.tx_items_table = QTableWidget()
         self.tx_items_table.setColumnCount(4)
@@ -812,15 +826,15 @@ class SupervisorDashboard(BaseWindow):
         self.tx_items_table.verticalHeader().setVisible(False)
         self.tx_items_table.setShowGrid(False)
         self.tx_items_table.setStyleSheet("""
-            QTableWidget { background: transparent; color: #c9d1d9; border: none; font-size: 11px; }
-            QTableWidget::item { padding: 5px 4px; border-bottom: 1px solid #21262d; }
-            QHeaderView::section { background: #0d1117; color: #8b949e; border: none; padding: 5px;
-                                   font-size: 10px; font-weight: 700; border-bottom: 1px solid #21262d; }
+            QTableWidget { background: transparent; color: #94a3b8; border: none; font-size: 11px; }
+            QTableWidget::item { padding: 5px 4px; border-bottom: 1px solid #1e293b; }
+            QHeaderView::section { background: #0b1120; color: #64748b; border: none; padding: 5px;
+                                   font-size: 10px; font-weight: 700; border-bottom: 1px solid #1e293b; }
         """)
 
         # Totals footer
         self.tx_footer = QLabel("")
-        self.tx_footer.setStyleSheet("color: #c9d1d9; font-size: 12px;")
+        self.tx_footer.setStyleSheet("color: #94a3b8; font-size: 12px;")
         self.tx_footer.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.tx_footer.setWordWrap(True)
 
@@ -866,7 +880,7 @@ class SupervisorDashboard(BaseWindow):
 
         tbl = self.tx_table
         tbl.setRowCount(len(rows))
-        status_colors = {"completed": "#3dd68c", "voided": "#f87171", "refunded": "#f59e0b"}
+        status_colors = {"completed": "#10b981", "voided": "#ef4444", "refunded": "#f59e0b"}
         for row, r in enumerate(rows):
             id_item = QTableWidgetItem(f"#{r[0]}")
             id_item.setData(Qt.ItemDataRole.UserRole, r[0])
@@ -875,11 +889,11 @@ class SupervisorDashboard(BaseWindow):
             date_item = QTableWidgetItem(r[2])
             time_item = QTableWidgetItem(r[3])
             total_item = QTableWidgetItem(f"${r[4]:,.2f}")
-            total_item.setForeground(QColor("#3dd68c"))
+            total_item.setForeground(QColor("#10b981"))
             total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             status_text = r[5].capitalize()
             status_item = QTableWidgetItem(f"  {status_text}  ")
-            status_item.setForeground(QColor(status_colors.get(r[5], "#8b949e")))
+            status_item.setForeground(QColor(status_colors.get(r[5], "#64748b")))
             status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
             for col, item in enumerate([id_item, cashier_item, date_item, time_item, total_item, status_item]):
@@ -930,7 +944,7 @@ class SupervisorDashboard(BaseWindow):
             price_item = QTableWidgetItem(f"${it[2]:,.2f}")
             price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             total_item = QTableWidgetItem(f"${it[4]:,.2f}")
-            total_item.setForeground(QColor("#3dd68c"))
+            total_item.setForeground(QColor("#10b981"))
             total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             for col, ci in enumerate([name_item, qty_item, price_item, total_item]):
                 self.tx_items_table.setItem(r, col, ci)
@@ -969,29 +983,29 @@ class SupervisorDashboard(BaseWindow):
 
     def _build_void_tab(self):
         w = QWidget()
-        w.setStyleSheet("background-color: #161b22;")
+        w.setStyleSheet("background-color: #0d1f2d;")
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
         # ── Shared button styles ─────────────────────────────────────
         self._vr_btn_outline = """
             QPushButton {
-                background: transparent; color: #c9d1d9;
-                border: 1.5px solid #30363d; border-radius: 17px;
+                background: transparent; color: #94a3b8;
+                border: 1.5px solid #1e3a5f; border-radius: 17px;
                 font-size: 12px; font-weight: 600; padding: 0 14px;
             }
-            QPushButton:hover  { background: #21262d; color: #ffffff; }
-            QPushButton:pressed{ background: #30363d; }
-            QPushButton:disabled{ color: #3d444d; border-color: #21262d; }
+            QPushButton:hover  { background: #1e293b; color: #ffffff; }
+            QPushButton:pressed{ background: #1e3a5f; }
+            QPushButton:disabled{ color: #334155; border-color: #1e293b; }
         """
         self._vr_btn_red = """
             QPushButton {
-                background: #7f1d1d; color: #fca5a5;
+                background: #ef444422; color: #fca5a5;
                 border: none; border-radius: 17px;
                 font-size: 12px; font-weight: 600; padding: 0 18px;
             }
-            QPushButton:hover  { background: #991b1b; }
+            QPushButton:hover  { background: #dc2626; }
             QPushButton:pressed{ background: #b91c1c; }
             QPushButton:disabled{ background: #2d1515; color: #6b3030; }
         """
@@ -1014,35 +1028,35 @@ class SupervisorDashboard(BaseWindow):
         self.vr_search.setFixedHeight(36)
         self.vr_search.setStyleSheet("""
             QLineEdit {
-                background-color: #0d1117; color: #ffffff;
-                border: 1.5px solid #30363d; border-radius: 18px;
+                background-color: #0b1120; color: #ffffff;
+                border: 1.5px solid #1e3a5f; border-radius: 18px;
                 padding: 0 16px; font-size: 13px;
             }
-            QLineEdit:focus { border-color: #1a56db; }
+            QLineEdit:focus { border-color: #f59e0b; }
         """)
         self.vr_search.returnPressed.connect(self._vr_search)
 
         self.vr_status_filter = QComboBox()
         self.vr_status_filter.addItems(["Completed Only", "All Statuses"])
-        self.vr_status_filter.setFixedHeight(36)
-        self.vr_status_filter.setFixedWidth(160)
+        self.vr_status_filter.setMinimumHeight(32)
+        self.vr_status_filter.setMinimumWidth(140)
         self.vr_status_filter.setStyleSheet("""
             QComboBox {
-                background-color: #0d1117; color: #c9d1d9;
-                border: 1.5px solid #30363d; border-radius: 18px;
+                background-color: #0b1120; color: #94a3b8;
+                border: 1.5px solid #1e3a5f; border-radius: 18px;
                 padding: 0 12px; font-size: 12px;
             }
             QComboBox::drop-down { border: none; }
-            QComboBox QAbstractItemView { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; }
+            QComboBox QAbstractItemView { background: #0b1120; color: #94a3b8; border: 1px solid #1e3a5f; }
         """)
 
         btn_search = QPushButton("Search")
-        btn_search.setFixedHeight(36)
-        btn_search.setFixedWidth(90)
+        btn_search.setMinimumHeight(32)
+        btn_search.setMinimumWidth(80)
         btn_search.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_search.setStyleSheet("""
             QPushButton {
-                background-color: #1a56db; color: #ffffff;
+                background-color: #f59e0b; color: #ffffff;
                 border: none; border-radius: 18px;
                 font-size: 13px; font-weight: 600;
             }
@@ -1064,11 +1078,11 @@ class SupervisorDashboard(BaseWindow):
 
         # ── Main splitter: transaction list | action panel ───────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setStyleSheet("QSplitter::handle { background: #30363d; width: 1px; }")
+        splitter.setStyleSheet("QSplitter::handle { background: #1e3a5f; width: 1px; }")
 
         # ── Left: transaction list ───────────────────────────────────
         left = QFrame()
-        left.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        left.setStyleSheet("background: #0b1120; border-radius: 8px;")
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
 
@@ -1087,34 +1101,35 @@ class SupervisorDashboard(BaseWindow):
         self.vr_table.verticalHeader().setVisible(False)
         self.vr_table.setShowGrid(False)
         self.vr_table.setStyleSheet("""
-            QTableWidget { background: transparent; color: #c9d1d9; border: none; font-size: 12px; }
-            QTableWidget::item { padding: 8px; border-bottom: 1px solid #21262d; }
-            QTableWidget::item:selected { background-color: #1a56db22; color: #ffffff; }
-            QHeaderView::section { background: #0d1117; color: #8b949e; border: none; padding: 8px;
-                                   font-size: 11px; font-weight: 700; border-bottom: 1px solid #21262d; }
+            QTableWidget { background: transparent; color: #94a3b8; border: none; font-size: 12px; }
+            QTableWidget::item { padding: 8px; border-bottom: 1px solid #1e293b; }
+            QTableWidget::item:selected { background-color: #f59e0b55; color: #fbbf24; }
+            QHeaderView::section { background: #0b1120; color: #64748b; border: none; padding: 8px;
+                                   font-size: 11px; font-weight: 700; border-bottom: 1px solid #1e293b; }
         """)
         self.vr_table.selectionModel().selectionChanged.connect(self._vr_on_row_selected)
         ll.addWidget(self.vr_table)
 
         # ── Right: receipt detail + action panel ─────────────────────
         right = QFrame()
-        right.setFixedWidth(360)
-        right.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        right.setMinimumWidth(300)
+        right.setMaximumWidth(420)
+        right.setStyleSheet("background: #0b1120; border-radius: 8px;")
         rl = QVBoxLayout(right)
         rl.setContentsMargins(16, 16, 16, 16)
         rl.setSpacing(10)
 
         # Receipt header
         self.vr_receipt_title = QLabel("Select a transaction")
-        self.vr_receipt_title.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: 700;")
+        self.vr_receipt_title.setStyleSheet("color: #94a3b8; font-size: 13px; font-weight: 700;")
 
         self.vr_receipt_meta = QLabel("")
-        self.vr_receipt_meta.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self.vr_receipt_meta.setStyleSheet("color: #64748b; font-size: 11px;")
         self.vr_receipt_meta.setWordWrap(True)
 
         sep1 = QFrame()
         sep1.setFrameShape(QFrame.Shape.HLine)
-        sep1.setStyleSheet("color: #30363d;")
+        sep1.setStyleSheet("color: #1e3a5f;")
 
         # Items table (with checkboxes for partial refund)
         self.vr_items_table = QTableWidget()
@@ -1129,39 +1144,39 @@ class SupervisorDashboard(BaseWindow):
         self.vr_items_table.verticalHeader().setVisible(False)
         self.vr_items_table.setShowGrid(False)
         self.vr_items_table.setStyleSheet("""
-            QTableWidget { background: transparent; color: #c9d1d9; border: none; font-size: 11px; }
-            QTableWidget::item { padding: 5px 4px; border-bottom: 1px solid #21262d; }
-            QTableWidget::item:selected { background: transparent; }
-            QHeaderView::section { background: #0d1117; color: #8b949e; border: none; padding: 5px;
-                                   font-size: 10px; font-weight: 700; border-bottom: 1px solid #21262d; }
+            QTableWidget { background: transparent; color: #94a3b8; border: none; font-size: 11px; }
+            QTableWidget::item { padding: 5px 4px; border-bottom: 1px solid #1e293b; }
+            QTableWidget::item:selected { background-color: #f59e0b55; color: #fbbf24; }
+            QHeaderView::section { background: #0b1120; color: #64748b; border: none; padding: 5px;
+                                   font-size: 10px; font-weight: 700; border-bottom: 1px solid #1e293b; }
         """)
 
         # Totals
         self.vr_footer = QLabel("")
-        self.vr_footer.setStyleSheet("color: #c9d1d9; font-size: 12px;")
+        self.vr_footer.setStyleSheet("color: #94a3b8; font-size: 12px;")
         self.vr_footer.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.vr_footer.setWordWrap(True)
         self.vr_footer.setTextFormat(Qt.TextFormat.RichText)
 
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.Shape.HLine)
-        sep2.setStyleSheet("color: #30363d;")
+        sep2.setStyleSheet("color: #1e3a5f;")
 
         # Refund mode row
         refund_mode_row = QHBoxLayout()
         refund_mode_lbl = QLabel("Refund mode:")
-        refund_mode_lbl.setStyleSheet("color: #8b949e; font-size: 11px;")
+        refund_mode_lbl.setStyleSheet("color: #64748b; font-size: 11px;")
         self.vr_refund_mode = QComboBox()
         self.vr_refund_mode.addItems(["Full Refund", "Partial Refund (select items)"])
         self.vr_refund_mode.setFixedHeight(30)
         self.vr_refund_mode.setStyleSheet("""
             QComboBox {
-                background-color: #161b22; color: #c9d1d9;
-                border: 1px solid #30363d; border-radius: 6px;
+                background-color: #0d1f2d; color: #94a3b8;
+                border: 1px solid #1e3a5f; border-radius: 6px;
                 padding: 0 8px; font-size: 11px;
             }
             QComboBox::drop-down { border: none; }
-            QComboBox QAbstractItemView { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; }
+            QComboBox QAbstractItemView { background: #0b1120; color: #94a3b8; border: 1px solid #1e3a5f; }
         """)
         self.vr_refund_mode.currentIndexChanged.connect(self._vr_on_refund_mode_changed)
         refund_mode_row.addWidget(refund_mode_lbl)
@@ -1173,11 +1188,11 @@ class SupervisorDashboard(BaseWindow):
         self.vr_reason.setFixedHeight(34)
         self.vr_reason.setStyleSheet("""
             QLineEdit {
-                background-color: #161b22; color: #ffffff;
-                border: 1.5px solid #30363d; border-radius: 8px;
+                background-color: #0d1f2d; color: #ffffff;
+                border: 1.5px solid #1e3a5f; border-radius: 8px;
                 padding: 0 12px; font-size: 12px;
             }
-            QLineEdit:focus { border-color: #1a56db; }
+            QLineEdit:focus { border-color: #f59e0b; }
         """)
         self.vr_reason.textChanged.connect(self._vr_update_action_buttons)
 
@@ -1208,7 +1223,7 @@ class SupervisorDashboard(BaseWindow):
         # Status banner (shown after action)
         self.vr_status_banner = QLabel("")
         self.vr_status_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.vr_status_banner.setStyleSheet("color: #3dd68c; font-size: 12px; font-weight: 600;")
+        self.vr_status_banner.setStyleSheet("color: #10b981; font-size: 12px; font-weight: 600;")
         self.vr_status_banner.setWordWrap(True)
         self.vr_status_banner.setVisible(False)
 
@@ -1264,7 +1279,7 @@ class SupervisorDashboard(BaseWindow):
 
         tbl = self.vr_table
         tbl.setRowCount(len(rows))
-        status_colors = {"completed": "#3dd68c", "voided": "#f87171", "refunded": "#f59e0b"}
+        status_colors = {"completed": "#10b981", "voided": "#ef4444", "refunded": "#f59e0b"}
         for row, r in enumerate(rows):
             id_item = QTableWidgetItem(f"#{r[0]}")
             id_item.setData(Qt.ItemDataRole.UserRole, r[0])
@@ -1273,11 +1288,11 @@ class SupervisorDashboard(BaseWindow):
             date_item    = QTableWidgetItem(r[2])
             time_item    = QTableWidgetItem(r[3])
             total_item   = QTableWidgetItem(f"${r[4]:,.2f}")
-            total_item.setForeground(QColor("#3dd68c"))
+            total_item.setForeground(QColor("#10b981"))
             total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             status_text  = r[5].capitalize()
             status_item  = QTableWidgetItem(f"  {status_text}  ")
-            status_item.setForeground(QColor(status_colors.get(r[5], "#8b949e")))
+            status_item.setForeground(QColor(status_colors.get(r[5], "#64748b")))
             status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             for col, item in enumerate([id_item, cashier_item, date_item, time_item, total_item, status_item]):
                 tbl.setItem(row, col, item)
@@ -1321,7 +1336,7 @@ class SupervisorDashboard(BaseWindow):
         self._vr_items_data         = list(items)  # (id, name, qty, unit_price, discount, line_total, gct)
 
         self.vr_receipt_title.setText(f"Receipt #{tx[0]}")
-        status_color = {"completed": "#3dd68c", "voided": "#f87171", "refunded": "#f59e0b"}.get(tx[7], "#8b949e")
+        status_color = {"completed": "#10b981", "voided": "#ef4444", "refunded": "#f59e0b"}.get(tx[7], "#64748b")
         self.vr_receipt_meta.setText(
             f"Cashier: {tx[1]}\n"
             f"Date: {tx[2]}  {tx[3]}\n"
@@ -1350,7 +1365,7 @@ class SupervisorDashboard(BaseWindow):
             price_item = QTableWidgetItem(f"${it[3]:,.2f}")
             price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             total_item = QTableWidgetItem(f"${it[5]:,.2f}")
-            total_item.setForeground(QColor("#3dd68c"))
+            total_item.setForeground(QColor("#10b981"))
             total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
             for col, ci in enumerate([name_item, qty_item, price_item, total_item], start=1):
@@ -1462,7 +1477,7 @@ class SupervisorDashboard(BaseWindow):
             self.vr_void_btn.setEnabled(False)
             self.vr_refund_btn.setEnabled(False)
             self.vr_status_banner.setText(f"✓  Transaction #{self._vr_selected_tx_id} voided successfully.")
-            self.vr_status_banner.setStyleSheet("color: #f87171; font-size: 12px; font-weight: 600;")
+            self.vr_status_banner.setStyleSheet("color: #ef4444; font-size: 12px; font-weight: 600;")
             self.vr_status_banner.setVisible(True)
             self._vr_load(status_filter="completed" if self.vr_status_filter.currentIndex() == 0 else "")
             # Print void receipt
@@ -1575,10 +1590,10 @@ class SupervisorDashboard(BaseWindow):
     # ── Products tab ─────────────────────────────────────────────────
     def _build_products_tab(self):
         w = QWidget()
-        w.setStyleSheet("background-color: #161b22;")
+        w.setStyleSheet("background-color: #0d1f2d;")
         layout = QHBoxLayout(w)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
         layout.addWidget(self._build_product_list(), stretch=1)
         layout.addWidget(self._build_product_form())
         return w
@@ -1598,11 +1613,11 @@ class SupervisorDashboard(BaseWindow):
         self.product_search.setFixedHeight(36)
         self.product_search.setStyleSheet("""
             QLineEdit {
-                background-color: #0d1117; color: #ffffff;
-                border: 1.5px solid #30363d; border-radius: 18px;
+                background-color: #0b1120; color: #ffffff;
+                border: 1.5px solid #1e3a5f; border-radius: 18px;
                 padding: 0 16px; font-size: 13px;
             }
-            QLineEdit:focus { border-color: #1a56db; }
+            QLineEdit:focus { border-color: #f59e0b; }
         """)
         self.product_search.returnPressed.connect(self._search_products)
 
@@ -1611,12 +1626,12 @@ class SupervisorDashboard(BaseWindow):
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_btn.setStyleSheet("""
             QPushButton {
-                background-color: #1a56db; color: #ffffff;
+                background-color: #f59e0b; color: #ffffff;
                 border: none; border-radius: 18px;
                 font-size: 13px; font-weight: 600;
                 padding: 0 16px;
             }
-            QPushButton:hover { background-color: #1145b0; }
+            QPushButton:hover { background-color: #d97706; }
         """)
         add_btn.clicked.connect(self._new_product_form)
 
@@ -1639,19 +1654,19 @@ class SupervisorDashboard(BaseWindow):
         self.product_table.setShowGrid(False)
         self.product_table.setStyleSheet("""
             QTableWidget {
-                background-color: #0d1117; color: #ffffff;
+                background-color: #0b1120; color: #ffffff;
                 border: none; border-radius: 8px; font-size: 13px;
             }
             QHeaderView::section {
-                background-color: #161b22; color: #8b949e;
+                background-color: #0d1f2d; color: #64748b;
                 font-size: 12px; font-weight: 700;
                 padding: 8px; border: none;
-                border-bottom: 1px solid #30363d;
+                border-bottom: 1px solid #1e3a5f;
             }
             QTableWidget::item { padding: 6px 8px; border: none; }
-            QTableWidget::item:selected { background-color: #21262d; }
-            QScrollBar:vertical { background: #161b22; width: 6px; border-radius: 3px; }
-            QScrollBar::handle:vertical { background: #30363d; border-radius: 3px; }
+            QTableWidget::item:selected { background-color: #f59e0b55; color: #fbbf24; }
+            QScrollBar:vertical { background: #0d1f2d; width: 6px; border-radius: 3px; }
+            QScrollBar::handle:vertical { background: #1e3a5f; border-radius: 3px; }
         """)
         self.product_table.doubleClicked.connect(self._on_table_double_click)
         self.product_table.keyPressEvent = self._on_table_key_press
@@ -1666,23 +1681,24 @@ class SupervisorDashboard(BaseWindow):
     # ── Product form (right side) ────────────────────────────────────
     def _build_product_form(self):
         scroll = QScrollArea()
-        scroll.setFixedWidth(285)
+        scroll.setMinimumWidth(250)
+        scroll.setMaximumWidth(330)
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("""
-            QScrollArea { background: #0d1117; border: none; border-radius: 8px; }
-            QScrollBar:vertical { background: #0d1117; width: 5px; border-radius: 3px; }
-            QScrollBar::handle:vertical { background: #30363d; border-radius: 3px; }
+            QScrollArea { background: #0b1120; border: none; border-radius: 8px; }
+            QScrollBar:vertical { background: #0b1120; width: 5px; border-radius: 3px; }
+            QScrollBar::handle:vertical { background: #1e3a5f; border-radius: 3px; }
         """)
 
         form_widget = QWidget()
-        form_widget.setStyleSheet("background-color: #0d1117;")
+        form_widget.setStyleSheet("background-color: #0b1120;")
         layout = QVBoxLayout(form_widget)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
 
         # Title
         self.form_title = QLabel("➕  Add Product")
-        self.form_title.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: 700;")
+        self.form_title.setStyleSheet("color: #94a3b8; font-size: 13px; font-weight: 700;")
 
         # ── Fields ──────────────────────────────────────────────────
         self.f_barcode  = self._form_input("Barcode",  "Scan or type barcode")
@@ -1697,7 +1713,7 @@ class SupervisorDashboard(BaseWindow):
         self.f_selling_price.setReadOnly(True)
         self.f_selling_price.setStyleSheet("""
             QLineEdit {
-                background-color: #0d1a10; color: #3fb950;
+                background-color: #0d1a10; color: #10b981;
                 border: 1px solid #1a3a20; border-radius: 6px;
                 padding: 0 10px; font-size: 13px;
             }
@@ -1720,7 +1736,7 @@ class SupervisorDashboard(BaseWindow):
 
         # Group field with autocomplete
         grp_lbl = QLabel("Group")
-        grp_lbl.setStyleSheet("color: #8b949e; font-size: 11px; text-transform: uppercase;")
+        grp_lbl.setStyleSheet("color: #64748b; font-size: 11px; text-transform: uppercase;")
         self.f_group = QComboBox()
         self.f_group.setStyleSheet(self._combo_style())
         self._populate_groups()
@@ -1728,14 +1744,14 @@ class SupervisorDashboard(BaseWindow):
 
         # Discount level 1 dropdown
         disc_lbl = QLabel("Discount Level 1")
-        disc_lbl.setStyleSheet("color: #8b949e; font-size: 11px; text-transform: uppercase;")
+        disc_lbl.setStyleSheet("color: #64748b; font-size: 11px; text-transform: uppercase;")
         self.f_discount = QComboBox()
         self.f_discount.setStyleSheet(self._combo_style())
         self._populate_discount_levels()
 
         # Discount level 2 dropdown
         disc2_lbl = QLabel("Discount Level 2  (higher qty)")
-        disc2_lbl.setStyleSheet("color: #8b949e; font-size: 11px; text-transform: uppercase;")
+        disc2_lbl.setStyleSheet("color: #64748b; font-size: 11px; text-transform: uppercase;")
         self.f_discount2 = QComboBox()
         self.f_discount2.setStyleSheet(self._combo_style())
         self._populate_discount_levels_2()
@@ -1743,7 +1759,7 @@ class SupervisorDashboard(BaseWindow):
         # Divider
         div = QFrame()
         div.setFrameShape(QFrame.Shape.HLine)
-        div.setStyleSheet("background-color: #21262d; max-height: 1px; border: none;")
+        div.setStyleSheet("background-color: #1e293b; max-height: 1px; border: none;")
 
         # Toggles
         self.t_gct  = self._toggle_row("GCT Applicable")
@@ -1755,7 +1771,7 @@ class SupervisorDashboard(BaseWindow):
         self.case_box = QFrame()
         self.case_box.setStyleSheet("""
             QFrame {
-                background-color: #161b22;
+                background-color: #0d1f2d;
                 border: 1px solid #1a3a20;
                 border-radius: 6px;
             }
@@ -1766,7 +1782,7 @@ class SupervisorDashboard(BaseWindow):
         case_layout.setSpacing(8)
 
         case_title = QLabel("📦  Case Details")
-        case_title.setStyleSheet("color: #3fb950; font-size: 11px; font-weight: 700; background: transparent;")
+        case_title.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 700; background: transparent;")
 
         self.f_case_qty    = self._form_input("Case Quantity", "e.g. 24")
         self.f_case_qty.setValidator(QIntValidator(1, 9999))
@@ -1775,7 +1791,7 @@ class SupervisorDashboard(BaseWindow):
         self.f_case_price.setReadOnly(True)
         self.f_case_price.setStyleSheet("""
             QLineEdit {
-                background-color: #0d1a10; color: #3fb950;
+                background-color: #0d1a10; color: #10b981;
                 border: 1px solid #1a3a20; border-radius: 6px;
                 padding: 7px 10px; font-size: 13px;
             }
@@ -1800,11 +1816,11 @@ class SupervisorDashboard(BaseWindow):
         self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cancel_btn.setStyleSheet("""
             QPushButton {
-                background-color: #21262d; color: #ffffff;
-                border: 1.5px solid #30363d; border-radius: 19px;
+                background-color: #1e293b; color: #ffffff;
+                border: 1.5px solid #1e3a5f; border-radius: 19px;
                 font-size: 13px; font-weight: 600;
             }
-            QPushButton:hover { background-color: #30363d; }
+            QPushButton:hover { background-color: #1e3a5f; }
         """)
         self.cancel_btn.clicked.connect(self._clear_form)
 
@@ -1813,11 +1829,11 @@ class SupervisorDashboard(BaseWindow):
         self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_btn.setStyleSheet("""
             QPushButton {
-                background-color: #1a56db; color: #ffffff;
+                background-color: #f59e0b; color: #ffffff;
                 border: none; border-radius: 19px;
                 font-size: 13px; font-weight: 700;
             }
-            QPushButton:hover { background-color: #1145b0; }
+            QPushButton:hover { background-color: #d97706; }
         """)
         self.save_btn.clicked.connect(self._save_product)
         btn_row.addWidget(self.cancel_btn)
@@ -1859,12 +1875,12 @@ class SupervisorDashboard(BaseWindow):
         inp.setFixedHeight(34)
         inp.setStyleSheet("""
             QLineEdit {
-                background-color: #161b22; color: #ffffff;
-                border: 1px solid #30363d; border-radius: 6px;
+                background-color: #0d1f2d; color: #ffffff;
+                border: 1px solid #1e3a5f; border-radius: 6px;
                 padding: 0 10px; font-size: 13px;
             }
-            QLineEdit:focus { border-color: #1a56db; }
-            QLineEdit:read-only { background-color: #0d1117; color: #484f58; }
+            QLineEdit:focus { border-color: #f59e0b; }
+            QLineEdit:read-only { background-color: #0b1120; color: #484f58; }
         """)
         return inp
 
@@ -1875,7 +1891,7 @@ class SupervisorDashboard(BaseWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         lbl = QLabel(label)
-        lbl.setStyleSheet("color: #8b949e; font-size: 11px; text-transform: uppercase; background: transparent;")
+        lbl.setStyleSheet("color: #64748b; font-size: 11px; text-transform: uppercase; background: transparent;")
         layout.addWidget(lbl)
         layout.addWidget(widget)
         return wrap
@@ -1884,29 +1900,30 @@ class SupervisorDashboard(BaseWindow):
         cb = QCheckBox(label)
         cb.setStyleSheet("""
             QCheckBox {
-                color: #8b949e; font-size: 13px; spacing: 8px;
+                color: #64748b; font-size: 13px; spacing: 8px;
             }
             QCheckBox::indicator {
                 width: 36px; height: 20px;
-                border-radius: 10px; background-color: #30363d;
+                border-radius: 10px; background-color: #1e3a5f;
             }
-            QCheckBox::indicator:checked { background-color: #1a56db; }
+            QCheckBox::indicator:checked { background-color: #f59e0b; }
         """)
         return cb
 
     def _combo_style(self):
         return """
             QComboBox {
-                background-color: #161b22; color: #ffffff;
-                border: 1px solid #30363d; border-radius: 6px;
+                background-color: #0d1f2d; color: #ffffff;
+                border: 1px solid #1e3a5f; border-radius: 6px;
                 padding: 6px 10px; font-size: 13px;
             }
-            QComboBox:focus { border-color: #1a56db; }
+            QComboBox:focus { border-color: #f59e0b; }
             QComboBox::drop-down { border: none; }
             QComboBox QAbstractItemView {
-                background-color: #161b22; color: #ffffff;
-                selection-background-color: #1a56db;
-                border: 1px solid #30363d;
+                background-color: #0d1f2d; color: #ffffff;
+                selection-background-color: #f59e0b;
+                selection-color: #0a0400;
+                border: 1px solid #1e3a5f;
             }
         """
 
@@ -1973,10 +1990,10 @@ class SupervisorDashboard(BaseWindow):
         self.f_cost.setStyleSheet("""
             QLineEdit {
                 background-color: %s; color: %s;
-                border: 1px solid #30363d; border-radius: 6px;
+                border: 1px solid #1e3a5f; border-radius: 6px;
                 padding: 0 10px; font-size: 13px;
             }
-        """ % (("#0d1117", "#484f58") if is_case else ("#161b22", "#ffffff")))
+        """ % (("#0b1120", "#484f58") if is_case else ("#0d1f2d", "#ffffff")))
         self.f_group.setEnabled(not is_case)
         if is_case:
             self.f_selling_price.clear()
@@ -2170,14 +2187,14 @@ class SupervisorDashboard(BaseWindow):
 
             self.product_table.setItem(row, 0, cell(name))
             self.product_table.setItem(row, 1, cell(barcode, "#4493f8"))
-            self.product_table.setItem(row, 2, cell(brand or "—", "#8b949e"))
-            self.product_table.setItem(row, 3, cell(f"${selling_price:.2f}", "#3fb950", center))
-            self.product_table.setItem(row, 4, cell(group or "—", "#8b949e"))
+            self.product_table.setItem(row, 2, cell(brand or "—", "#64748b"))
+            self.product_table.setItem(row, 3, cell(f"${selling_price:.2f}", "#10b981", center))
+            self.product_table.setItem(row, 4, cell(group or "—", "#64748b"))
 
             # GCT badge
             gct_lbl = self._badge(
                 "GCT" if gct else "No GCT",
-                "#4493f8" if gct else "#8b949e",
+                "#4493f8" if gct else "#64748b",
                 "#1a2a3a" if gct else "#2a2a2a"
             )
             self.product_table.setCellWidget(row, 5, gct_lbl)
@@ -2185,7 +2202,7 @@ class SupervisorDashboard(BaseWindow):
             # Type badge
             type_lbl = self._badge(
                 "Case" if is_case else "Single",
-                "#3fb950" if is_case else "#8b949e",
+                "#10b981" if is_case else "#64748b",
                 "#1a3a2a" if is_case else "#2a2a3a"
             )
             self.product_table.setCellWidget(row, 6, type_lbl)
@@ -2202,10 +2219,12 @@ class SupervisorDashboard(BaseWindow):
             edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             edit_btn.setStyleSheet("""
                 QPushButton {
-                    background: transparent; color: #8b949e;
-                    border: 1px solid #30363d; border-radius: 4px; font-size: 12px;
+                    background: #0d1e2e; color: #94aac4;
+                    border: 1.5px solid #2d5282; border-radius: 5px;
+                    font-size: 13px; font-weight: 600;
                 }
-                QPushButton:hover { border-color: #1a56db; color: #ffffff; }
+                QPushButton:hover { background: #1e3a5f; border-color: #f59e0b; color: #f59e0b; }
+                QPushButton:pressed { background: #f59e0b22; }
             """)
             edit_btn.clicked.connect(lambda _, i=pid: self._edit_product(i))
 
@@ -2214,10 +2233,12 @@ class SupervisorDashboard(BaseWindow):
             del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             del_btn.setStyleSheet("""
                 QPushButton {
-                    background: transparent; color: #8b949e;
-                    border: 1px solid #30363d; border-radius: 4px; font-size: 12px;
+                    background: #1a0808; color: #f87171;
+                    border: 1.5px solid #7f1d1d; border-radius: 5px;
+                    font-size: 13px; font-weight: 600;
                 }
-                QPushButton:hover { border-color: #f85149; color: #f85149; }
+                QPushButton:hover { background: #450a0a; border-color: #f85149; color: #fca5a5; }
+                QPushButton:pressed { background: #7f1d1d; }
             """)
             del_btn.clicked.connect(lambda _, i=pid: self._delete_product(i))
 
@@ -2551,6 +2572,68 @@ class SupervisorDashboard(BaseWindow):
     # CLOCK
     # ----------------------------------------------------------------
 
+    def _build_quickkeys_tab(self):
+        """Quick Keys tab — opens the QuickKeysDialog inline."""
+        from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
+        from ui.theme import DARK as T
+
+        w = QWidget()
+        w.setStyleSheet(f"background-color: {T['BG_SURFACE']};")
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        icon = QLabel("⌨")
+        icon.setAlignment(__import__('PyQt6.QtCore', fromlist=['Qt']).Qt.AlignmentFlag.AlignCenter)
+        icon.setStyleSheet("font-size: 48px;")
+
+        title = QLabel("F1–F8 Quick Keys")
+        title.setAlignment(__import__('PyQt6.QtCore', fromlist=['Qt']).Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet(
+            f"color: {T['TEXT_PRIMARY']}; font-size: 20px; font-weight: 700;")
+
+        desc = QLabel(
+            "Assign products to the F1-F8 keys on the cashier checkout screen. "
+            "Cashiers can add assigned products to the cart with a single keypress.")
+        desc.setAlignment(__import__('PyQt6.QtCore', fromlist=['Qt']).Qt.AlignmentFlag.AlignCenter)
+        desc.setWordWrap(True)
+        desc.setStyleSheet(
+            f"color: {T['TEXT_SECONDARY']}; font-size: 13px;")
+
+        open_btn = QPushButton("⌨  Open Quick Key Manager")
+        open_btn.setFixedHeight(48)
+        open_btn.setFixedWidth(280)
+        open_btn.setCursor(__import__('PyQt6.QtCore', fromlist=['Qt']).Qt.CursorShape.PointingHandCursor)
+        open_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T['ACCENT']}; color: {T['ACCENT_TEXT']};
+                border: none; border-radius: 24px;
+                font-size: 14px; font-weight: 700;
+            }}
+            QPushButton:hover  {{ background-color: {T['ACCENT_HOVER']}; }}
+            QPushButton:pressed{{ background-color: {T['ACCENT_PRESS']}; }}
+        """)
+        open_btn.clicked.connect(self._open_quickkeys_dialog)
+
+        layout.addStretch()
+        layout.addWidget(icon)
+        layout.addWidget(title)
+        layout.addWidget(desc)
+        layout.addSpacing(10)
+
+        btn_wrap = QVBoxLayout()
+        btn_wrap.setAlignment(__import__('PyQt6.QtCore', fromlist=['Qt']).Qt.AlignmentFlag.AlignCenter)
+        btn_wrap.addWidget(open_btn)
+        layout.addLayout(btn_wrap)
+        layout.addStretch()
+        return w
+
+    def _open_quickkeys_dialog(self):
+        """Open the Quick Keys assignment dialog."""
+        from ui.dialogs import QuickKeysDialog
+        dialog = QuickKeysDialog(self)
+        dialog.exec()
+
     def _update_clock(self):
         now = datetime.now()
         self.clock_label.setText(
@@ -2592,7 +2675,7 @@ class SupervisorDashboard(BaseWindow):
 
     def _build_labels_tab(self):
         w = QWidget()
-        w.setStyleSheet("background-color: #161b22;")
+        w.setStyleSheet("background-color: #0d1f2d;")
         root = QHBoxLayout(w)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(12)
@@ -2616,11 +2699,11 @@ class SupervisorDashboard(BaseWindow):
         self.label_search.setFixedHeight(36)
         self.label_search.setStyleSheet("""
             QLineEdit {
-                background-color: #0d1117; color: #ffffff;
-                border: 1.5px solid #30363d; border-radius: 18px;
+                background-color: #0b1120; color: #ffffff;
+                border: 1.5px solid #1e3a5f; border-radius: 18px;
                 padding: 0 16px; font-size: 13px;
             }
-            QLineEdit:focus { border-color: #1a56db; }
+            QLineEdit:focus { border-color: #f59e0b; }
         """)
         self.label_search.textChanged.connect(self._label_filter_products)
 
@@ -2629,11 +2712,12 @@ class SupervisorDashboard(BaseWindow):
         sel_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         sel_all_btn.setStyleSheet("""
             QPushButton {
-                background: transparent; color: #8b949e;
-                border: 1px solid #30363d; border-radius: 16px;
+                background: #0d1e2e; color: #94aac4;
+                border: 1.5px solid #2d5282; border-radius: 16px;
                 font-size: 11px; padding: 0 12px;
             }
-            QPushButton:hover { color: #ffffff; border-color: #1a56db; }
+            QPushButton:hover { background: #1e3a5f; color: #f59e0b; border-color: #f59e0b; }
+            QPushButton:pressed { background: #f59e0b22; }
         """)
         sel_all_btn.clicked.connect(self._label_select_all)
 
@@ -2644,7 +2728,7 @@ class SupervisorDashboard(BaseWindow):
         clr_btn.clicked.connect(self._label_clear_selection)
 
         self.label_sel_count = QLabel("0 selected")
-        self.label_sel_count.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self.label_sel_count.setStyleSheet("color: #64748b; font-size: 11px;")
 
         toolbar.addWidget(self.label_search, stretch=1)
         toolbar.addWidget(sel_all_btn)
@@ -2668,15 +2752,15 @@ class SupervisorDashboard(BaseWindow):
         self.label_product_table.setShowGrid(False)
         self.label_product_table.setStyleSheet("""
             QTableWidget {
-                background-color: #0d1117; color: #c9d1d9;
+                background-color: #0b1120; color: #94a3b8;
                 border: none; border-radius: 8px; font-size: 12px;
             }
-            QTableWidget::item { padding: 6px 8px; border-bottom: 1px solid #21262d; }
-            QTableWidget::item:selected { background-color: #1a56db22; color: #ffffff; }
+            QTableWidget::item { padding: 6px 8px; border-bottom: 1px solid #1e293b; }
+            QTableWidget::item:selected { background-color: #f59e0b55; color: #fbbf24; }
             QHeaderView::section {
-                background: #0d1117; color: #8b949e; border: none;
+                background: #0b1120; color: #64748b; border: none;
                 padding: 6px; font-size: 11px; font-weight: 700;
-                border-bottom: 1px solid #21262d;
+                border-bottom: 1px solid #1e293b;
             }
         """)
         self.label_product_table.currentItemChanged.connect(self._label_on_row_changed)
@@ -2702,7 +2786,7 @@ class SupervisorDashboard(BaseWindow):
         # ── Label preview ─────────────────────────────────────────────
         preview_lbl = QLabel("LABEL PREVIEW")
         preview_lbl.setStyleSheet(
-            "color: #8b949e; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
+            "color: #64748b; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
         )
         self.label_preview = _LabelPreviewWidget()
         self.label_preview.setFixedHeight(180)
@@ -2710,22 +2794,23 @@ class SupervisorDashboard(BaseWindow):
         # ── Page / label size ─────────────────────────────────────────
         size_lbl = QLabel("PAGE / LABEL SIZE")
         size_lbl.setStyleSheet(
-            "color: #8b949e; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
+            "color: #64748b; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
         )
         self.label_size_combo = QComboBox()
         self.label_size_combo.setFixedHeight(34)
         self.label_size_combo.setStyleSheet("""
             QComboBox {
-                background-color: #0d1117; color: #ffffff;
-                border: 1.5px solid #30363d; border-radius: 8px;
+                background-color: #0b1120; color: #ffffff;
+                border: 1.5px solid #1e3a5f; border-radius: 8px;
                 padding: 0 12px; font-size: 13px;
             }
-            QComboBox:focus { border-color: #1a56db; }
+            QComboBox:focus { border-color: #f59e0b; }
             QComboBox::drop-down { border: none; width: 20px; }
             QComboBox QAbstractItemView {
-                background: #0d1117; color: #c9d1d9;
-                border: 1px solid #30363d;
-                selection-background-color: #1a56db;
+                background: #0b1120; color: #94a3b8;
+                border: 1px solid #1e3a5f;
+                selection-background-color: #f59e0b;
+                selection-color: #0a0400;
             }
         """)
         for entry in self._LABEL_SIZES:
@@ -2736,9 +2821,9 @@ class SupervisorDashboard(BaseWindow):
         # ── Show on label ─────────────────────────────────────────────
         show_lbl = QLabel("SHOW ON LABEL")
         show_lbl.setStyleSheet(
-            "color: #8b949e; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
+            "color: #64748b; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
         )
-        chk_style = "color: #c9d1d9; font-size: 13px;"
+        chk_style = "color: #94a3b8; font-size: 13px;"
         self.label_chk_name    = QCheckBox("Product Name");  self.label_chk_name.setChecked(True)
         self.label_chk_brand   = QCheckBox("Brand");         self.label_chk_brand.setChecked(True)
         self.label_chk_price   = QCheckBox("Price");         self.label_chk_price.setChecked(True)
@@ -2751,7 +2836,7 @@ class SupervisorDashboard(BaseWindow):
         # ── Copies per product ────────────────────────────────────────
         copies_row = QHBoxLayout()
         copies_lbl = QLabel("Copies per product:")
-        copies_lbl.setStyleSheet("color: #c9d1d9; font-size: 12px;")
+        copies_lbl.setStyleSheet("color: #94a3b8; font-size: 12px;")
         self.label_copies = QSpinBox()
         self.label_copies.setMinimum(1)
         self.label_copies.setMaximum(999)
@@ -2760,13 +2845,13 @@ class SupervisorDashboard(BaseWindow):
         self.label_copies.setFixedHeight(32)
         self.label_copies.setStyleSheet("""
             QSpinBox {
-                background-color: #0d1117; color: #ffffff;
-                border: 1.5px solid #30363d; border-radius: 8px;
+                background-color: #0b1120; color: #ffffff;
+                border: 1.5px solid #1e3a5f; border-radius: 8px;
                 padding: 0 10px; font-size: 13px;
             }
-            QSpinBox:focus { border-color: #1a56db; }
+            QSpinBox:focus { border-color: #f59e0b; }
             QSpinBox::up-button, QSpinBox::down-button {
-                background: #21262d; border: none; width: 18px;
+                background: #1e293b; border: none; width: 18px;
             }
         """)
         copies_row.addWidget(copies_lbl)
@@ -2780,12 +2865,12 @@ class SupervisorDashboard(BaseWindow):
         self.label_print_btn.setEnabled(False)
         self.label_print_btn.setStyleSheet("""
             QPushButton {
-                background-color: #1a56db; color: #ffffff;
+                background-color: #f59e0b; color: #ffffff;
                 border: none; border-radius: 10px;
                 font-size: 14px; font-weight: 700;
             }
-            QPushButton:hover   { background-color: #1145b0; }
-            QPushButton:pressed { background-color: #0e3a8a; }
+            QPushButton:hover   { background-color: #d97706; }
+            QPushButton:pressed { background-color: #b45309; }
             QPushButton:disabled { background-color: #1a2540; color: #4a5a7a; }
         """)
         self.label_print_btn.clicked.connect(self._label_print)
@@ -2796,25 +2881,25 @@ class SupervisorDashboard(BaseWindow):
         self.label_pdf_btn.setEnabled(False)
         self.label_pdf_btn.setStyleSheet("""
             QPushButton {
-                background-color: #14532d; color: #86efac;
+                background-color: #10b98122; color: #6ee7b7;
                 border: none; border-radius: 8px;
                 font-size: 12px; font-weight: 600;
             }
-            QPushButton:hover   { background-color: #166534; }
+            QPushButton:hover   { background-color: #059669; }
             QPushButton:pressed { background-color: #15803d; }
             QPushButton:disabled { background-color: #0d2b18; color: #3a6b4a; }
         """)
         self.label_pdf_btn.clicked.connect(lambda: self._label_print(save_pdf=True))
 
         self.label_status = QLabel("")
-        self.label_status.setStyleSheet("color: #3fb950; font-size: 12px;")
+        self.label_status.setStyleSheet("color: #10b981; font-size: 12px;")
         self.label_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label_status.setWordWrap(True)
 
         # ── Assemble ──────────────────────────────────────────────────
         def _div():
             f = QFrame(); f.setFrameShape(QFrame.Shape.HLine)
-            f.setStyleSheet("background: #30363d; max-height: 1px; border: none;")
+            f.setStyleSheet("background: #1e3a5f; max-height: 1px; border: none;")
             return f
 
         layout.addWidget(preview_lbl)
@@ -2912,13 +2997,13 @@ class SupervisorDashboard(BaseWindow):
             name_item.setForeground(QColor("#ffffff"))
 
             brand_item = QTableWidgetItem(brand or "")
-            brand_item.setForeground(QColor("#8b949e"))
+            brand_item.setForeground(QColor("#64748b"))
 
             bc_item = QTableWidgetItem(barcode or "")
             bc_item.setForeground(QColor("#484f58"))
 
             price_item = QTableWidgetItem(f"${price:.2f}")
-            price_item.setForeground(QColor("#3fb950"))
+            price_item.setForeground(QColor("#10b981"))
             price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
             tbl.setItem(row, 0, chk_item)
@@ -3299,7 +3384,7 @@ class _LabelPreviewWidget(QWidget):
     def paintEvent(self, event):
         if not self._product:
             painter = QPainter(self)
-            painter.setPen(QColor("#30363d"))
+            painter.setPen(QColor("#1e3a5f"))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
                              "Select a product to preview")
             return
@@ -3331,7 +3416,7 @@ class _LabelPreviewWidget(QWidget):
 
         # Draw label background + border
         painter.setBrush(QBrush(QColor("#ffffff")))
-        painter.setPen(QPen(QColor("#1a56db"), 1.5))
+        painter.setPen(QPen(QColor("#f59e0b"), 1.5))
         painter.drawRoundedRect(rect, 6, 6)
 
         # Draw content inside label
@@ -3420,7 +3505,7 @@ def _draw_label(painter, rect, product, options, preview=False):
         font = QFont("Arial", fsize)
         font.setBold(True)
         painter.setFont(font)
-        painter.setPen(QColor("#1a56db") if preview else QColor("#000080"))
+        painter.setPen(QColor("#f59e0b") if preview else QColor("#000080"))
         price_str = f"${price:.2f}"
         fm = QFontMetrics(font)
         price_w = fm.horizontalAdvance(price_str)
@@ -3450,7 +3535,7 @@ def _draw_label(painter, rect, product, options, preview=False):
             fsize = max(int(tier_h * 0.58), 5)
             font = QFont("Arial", fsize)
             painter.setFont(font)
-            painter.setPen(QColor("#15803d") if preview else QColor("#166534"))
+            painter.setPen(QColor("#15803d") if preview else QColor("#059669"))
             tier_str = f"buy {min_qty}+  →  ${disc_price:.2f}"
             tr = QRectF(x + pad, cur_y, w - pad * 2, tier_h)
             painter.drawText(tr, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,

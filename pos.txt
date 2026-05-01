@@ -34,4 +34,6 @@ Remaining ○
 
 
 PostgreSQL sync (external database conncet)
+Packaging for platforms with all dependencies to work and setup executable ("most important" is windows 10 and flatpak)
+
 

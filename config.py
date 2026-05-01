@@ -17,7 +17,9 @@ APP_VERSION = "1.0.0"
 # DATABASE — LOCAL (SQLite) — 4 separate databases
 # ----------------------------------------------------------------
 
-DATA_DIR = Path.home() / "pos-data"
+# Store all databases in a "storedata" folder inside the program directory
+BASE_DIR = Path(__file__).parent.resolve()
+DATA_DIR  = BASE_DIR / "storedata"
 DATA_DIR.mkdir(exist_ok=True)
 
 # Each module has its own database file

@@ -1,14 +1,5 @@
-Cashier dashbroad:
- - add a reprint last receipt button above the "last change" display to print the login in cashier's last receipt
-
-Supervisor dashbroad:
- - Product tabs
-    - add a second discount level so the product can have a different discount if a higher number of the product is being purchased
-
-Manager dashbroad:
- - some tab from the supervisor tab are missing added them
 
 Golbal wants:
  - the styling, font, and over visual should be tweak to distinguish gui element for user in all dashbroads
- - Add a zoom to scale gui to help the visually impaired distinguish gui element
- - add icons to tabs that describe what they do if it does not have one already
+ - the search lists in all dashbroads when a item is hieght lighted you cannot see text
+ - icons are invisable like the arrows under cart 1,2,3 and other elements in other dashbroads

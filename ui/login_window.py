@@ -19,10 +19,12 @@ class LoginWindow(QMainWindow):
     Authenticates the user and opens the correct dashboard based on their role.
     """
 
-    def __init__(self):
+    def __init__(self, app=None):
         super().__init__()
+        self._app = app
         self.setWindowTitle("Merchant POS System — Login")
-        self.setFixedSize(420, 520)
+        self.setMinimumSize(380, 480)
+        self.resize(420, 540)
         self._center_on_screen()
         self._build_ui()
 
@@ -35,50 +37,46 @@ class LoginWindow(QMainWindow):
 
         # Main container widget with dark background
         container = QWidget()
-        container.setStyleSheet("""
-            QWidget {
-                background-color: #1a1a2e;
-            }
-        """)
+        container.setStyleSheet("QWidget { background-color: #0b1120; }")
         self.setCentralWidget(container)
 
         # Outer layout — centres the card vertically
         outer_layout = QVBoxLayout(container)
         outer_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        outer_layout.setContentsMargins(40, 40, 40, 40)
+        outer_layout.setContentsMargins(24, 24, 24, 24)
 
         # ── Login card ──────────────────────────────────────────────
         card = QFrame()
         card.setStyleSheet("""
             QFrame {
-                background-color: #16213e;
+                background-color: #111827;
                 border-radius: 16px;
-                border: 1px solid #0f3460;
+                border: 1.5px solid #1e3a5f;
             }
         """)
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(36, 40, 36, 40)
-        card_layout.setSpacing(16)
+        card_layout.setContentsMargins(24, 28, 24, 28)
+        card_layout.setSpacing(12)
 
         # ── Logo / title area ────────────────────────────────────────
         logo_label = QLabel("⬡")
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo_label.setStyleSheet("color: #e94560; font-size: 42px; border: none;")
+        logo_label.setStyleSheet("color: #f59e0b; font-size: 48px; border: none;")
 
         title_label = QLabel("Merchant POS Systems")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet("""
-            color: #ffffff;
+            color: #f1f5f9;
             font-size: 22px;
             font-weight: 700;
-            letter-spacing: 2px;
+            letter-spacing: 1px;
             border: none;
         """)
 
         subtitle_label = QLabel("Sign in to continue")
         subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle_label.setStyleSheet("""
-            color: #8892a4;
+            color: #64748b;
             font-size: 13px;
             border: none;
             margin-bottom: 8px;
@@ -86,28 +84,28 @@ class LoginWindow(QMainWindow):
 
         # ── Username field ───────────────────────────────────────────
         username_label = QLabel("Username")
-        username_label.setStyleSheet("color: #8892a4; font-size: 12px; border: none;")
+        username_label.setStyleSheet("color: #64748b; font-size: 12px; font-weight: 600; border: none;")
 
         self.username_input = QLineEdit()
         self.username_input.setPlaceholderText("Enter your username")
-        self.username_input.setFixedHeight(44)
+        self.username_input.setMinimumHeight(38)
         self.username_input.setStyleSheet(self._input_style())
 
         # ── Password field ───────────────────────────────────────────
         password_label = QLabel("Password")
-        password_label.setStyleSheet("color: #8892a4; font-size: 12px; border: none;")
+        password_label.setStyleSheet("color: #64748b; font-size: 12px; font-weight: 600; border: none;")
 
         self.password_input = QLineEdit()
         self.password_input.setPlaceholderText("Enter your password")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password_input.setFixedHeight(44)
+        self.password_input.setMinimumHeight(38)
         self.password_input.setStyleSheet(self._input_style())
 
         # ── Error message label (hidden by default) ──────────────────
 
         # ── Login button ─────────────────────────────────────────────
         self.login_btn = QPushButton("Sign In")
-        self.login_btn.setFixedHeight(46)
+        self.login_btn.setMinimumHeight(40)
         self.login_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.login_btn.setStyleSheet(self._button_style())
         self.login_btn.clicked.connect(self._handle_login)
@@ -118,10 +116,18 @@ class LoginWindow(QMainWindow):
             lambda: self.password_input.setFocus()
         )
 
-        # ── Version label ────────────────────────────────────────────
+        # ── Version + theme toggle row ────────────────────────────────
+        bottom_row = QHBoxLayout()
         version_label = QLabel("v1.0.0")
-        version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         version_label.setStyleSheet("color: #3a4555; font-size: 11px; border: none;")
+
+        from ui.theme_toggle import ZoomWidget
+        self._zoom_btn = ZoomWidget(self._app) if self._app else None
+
+        bottom_row.addWidget(version_label)
+        bottom_row.addStretch()
+        if self._zoom_btn:
+            bottom_row.addWidget(self._zoom_btn)
 
         # ── Assemble card layout ─────────────────────────────────────
         card_layout.addWidget(logo_label)
@@ -132,7 +138,7 @@ class LoginWindow(QMainWindow):
         card_layout.addWidget(password_label)
         card_layout.addWidget(self.password_input)
         card_layout.addWidget(self.login_btn)
-        card_layout.addWidget(version_label)
+        card_layout.addLayout(bottom_row)
 
         outer_layout.addWidget(card)
 
@@ -192,9 +198,6 @@ class LoginWindow(QMainWindow):
         """
         Open the correct dashboard based on the user's role.
         user = (id, username, full_name, role)
-
-        Cashiers are blocked from logging in unless a supervisor has opened
-        a cashing session specifically for their account.
         """
         user_id, username, full_name, role = user
 
@@ -203,14 +206,14 @@ class LoginWindow(QMainWindow):
             try:
                 from db import get_transactions_conn
                 conn = get_transactions_conn()
-                row = conn.execute(
+                row  = conn.execute(
                     "SELECT id FROM cashing_sessions "
                     "WHERE cashier_id = ? AND status = 'open' LIMIT 1",
                     (user_id,)
                 ).fetchone()
                 conn.close()
             except Exception:
-                row = None   # DB unreachable — fail safe (block login)
+                row = None
 
             if row is None:
                 QMessageBox.warning(
@@ -226,13 +229,13 @@ class LoginWindow(QMainWindow):
 
         if role == "cashier":
             from ui.cashier_dashboard import CashierDashboard
-            self.dashboard = CashierDashboard(user_id, full_name)
+            self.dashboard = CashierDashboard(user_id, full_name, app=self._app)
         elif role == "supervisor":
             from ui.supervisor_dashboard import SupervisorDashboard
-            self.dashboard = SupervisorDashboard(user_id, full_name)
+            self.dashboard = SupervisorDashboard(user_id, full_name, app=self._app)
         elif role == "manager":
             from ui.manager_dashboard import ManagerDashboard
-            self.dashboard = ManagerDashboard(user_id, full_name)
+            self.dashboard = ManagerDashboard(user_id, full_name, app=self._app)
 
         self.dashboard.show()
 
@@ -248,39 +251,40 @@ class LoginWindow(QMainWindow):
         self.move(x, y)
 
     def _input_style(self):
-        return """
-            QLineEdit {
-                background-color: #0f3460;
-                color: #ffffff;
-                border: 1px solid #1a4a7a;
+        from ui.theme import ThemeManager
+        v = ThemeManager.instance().palette
+        return f"""
+            QLineEdit {{
+                background-color: {v['BG_INPUT']};
+                color: {v['TEXT_PRIMARY']};
+                border: 1.5px solid {v['BORDER']};
                 border-radius: 8px;
                 padding: 0 14px;
                 font-size: 14px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #e94560;
-                background-color: #112244;
-            }
-            QLineEdit::placeholder {
-                color: #3a5070;
-            }
+            }}
+            QLineEdit:focus {{
+                border-color: {v['ACCENT']};
+                background-color: {v['BG_ELEVATED']};
+            }}
         """
 
     def _button_style(self):
-        return """
-            QPushButton {
-                background-color: #e94560;
-                color: #ffffff;
+        from ui.theme import ThemeManager
+        v = ThemeManager.instance().palette
+        return f"""
+            QPushButton {{
+                background-color: {v['ACCENT']};
+                color: {v['ACCENT_TEXT']};
                 border: none;
                 border-radius: 8px;
                 font-size: 15px;
-                font-weight: 600;
-                letter-spacing: 1px;
-            }
-            QPushButton:hover {
-                background-color: #ff5577;
-            }
-            QPushButton:pressed {
-                background-color: #c73652;
-            }
+                font-weight: 700;
+                letter-spacing: 0.5px;
+            }}
+            QPushButton:hover {{
+                background-color: {v['ACCENT_HOVER']};
+            }}
+            QPushButton:pressed {{
+                background-color: {v['ACCENT_PRESS']};
+            }}
         """

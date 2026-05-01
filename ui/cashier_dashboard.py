@@ -20,7 +20,7 @@ from db import get_products_conn, get_business_conn
 
 # Cart colors for visual distinction
 CART_COLORS = [
-    "#1a56db",  # Blue
+    "#f59e0b",  # Blue
     "#1a9e6c",  # Green
     "#c7622a",  # Orange
 ]
@@ -34,12 +34,14 @@ class CashierDashboard(BaseWindow):
 
     MAX_CARTS = 3
 
-    def __init__(self, user_id, full_name):
+    def __init__(self, user_id, full_name, app=None):
         super().__init__()
+        self._app       = app
         self.user_id    = user_id
         self.full_name  = full_name
-        self.gct_rate   = self._load_gct_rate()
-        self.quick_keys = self._load_quick_keys()
+        self.gct_rate      = self._load_gct_rate()
+        self.quick_keys    = self._load_quick_keys()
+        self.discount_rules = self._load_discount_rules()  # {id: {min_qty, pct}}
 
         # 3 independent carts
         self.carts       = [[] for _ in range(self.MAX_CARTS)]
@@ -64,7 +66,7 @@ class CashierDashboard(BaseWindow):
 
     def _build_ui(self):
         root = QWidget()
-        root.setStyleSheet("background-color: #0d1117;")
+        root.setStyleSheet("background-color: #0b1120;")
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -80,29 +82,36 @@ class CashierDashboard(BaseWindow):
     # ── Top bar ──────────────────────────────────────────────────────
     def _build_topbar(self):
         bar = QFrame()
-        bar.setFixedHeight(52)
-        bar.setStyleSheet("background-color: #1a56db; border-radius: 10px;")
+        bar.setMinimumHeight(44)
+        bar.setMaximumHeight(56)
+        # Cashier: deep blue topbar — distinct from supervisor (green) and manager (purple)
+        bar.setStyleSheet("background-color: #0a1929; border-radius: 10px;")
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(20, 0, 20, 0)
+        layout.setSpacing(10)
 
         left = QLabel(f"POS System  |  Cashier:  {self.full_name}")
-        left.setStyleSheet("color: #ffffff; font-size: 15px; font-weight: 600;")
+        left.setStyleSheet("color: #bfdbfe; font-size: 14px; font-weight: 600; letter-spacing: 0.3px;")
 
         self.clock_label = QLabel()
         self.clock_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.clock_label.setStyleSheet("color: #ffffff; font-size: 14px;")
+        self.clock_label.setStyleSheet("color: #93c5fd; font-size: 13px;")
+
+        from ui.theme_toggle import ZoomWidget
+        zoom_w = ZoomWidget(self._app)
 
         logout_btn = QPushButton("Logout  ↗")
-        logout_btn.setFixedSize(120, 36)
+        logout_btn.setMinimumWidth(100)
+        logout_btn.setMinimumHeight(32)
         logout_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         logout_btn.setStyleSheet("""
             QPushButton {
-                background-color: #111827; color: #ffffff;
-                border: none; border-radius: 18px;
+                background-color: #0c2340; color: #bfdbfe;
+                border: 1.5px solid #1d4ed8; border-radius: 18px;
                 font-size: 13px; font-weight: 700;
             }
-            QPushButton:hover   { background-color: #1f2937; }
-            QPushButton:pressed { background-color: #374151; }
+            QPushButton:hover   { background-color: #1e3a5f; border-color: #3b82f6; }
+            QPushButton:pressed { background-color: #1d4ed8; }
         """)
         logout_btn.clicked.connect(self._handle_logout)
 
@@ -110,14 +119,17 @@ class CashierDashboard(BaseWindow):
         layout.addStretch()
         layout.addWidget(self.clock_label)
         layout.addStretch()
+        layout.addWidget(zoom_w)
+        layout.addSpacing(8)
         layout.addWidget(logout_btn)
         return bar
 
     # ── Left panel — F1-F8 ───────────────────────────────────────────
     def _build_left_panel(self):
         panel = QFrame()
-        panel.setFixedWidth(120)
-        panel.setStyleSheet("background-color: #161b22; border-radius: 10px;")
+        panel.setMinimumWidth(100)
+        panel.setMaximumWidth(140)
+        panel.setStyleSheet("background-color: #0d1f2d; border-radius: 10px;")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(8, 12, 8, 12)
         layout.setSpacing(6)
@@ -125,7 +137,7 @@ class CashierDashboard(BaseWindow):
         self.fkey_buttons = []
         for i in range(8):
             btn = QPushButton()
-            btn.setFixedHeight(66)
+            btn.setMinimumHeight(52)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             if i < len(self.quick_keys):
                 qk = self.quick_keys[i]
@@ -144,10 +156,10 @@ class CashierDashboard(BaseWindow):
     # ── Center panel ─────────────────────────────────────────────────
     def _build_center_panel(self):
         panel = QFrame()
-        panel.setStyleSheet("background-color: #161b22; border-radius: 10px;")
+        panel.setStyleSheet("background-color: #0d1f2d; border-radius: 10px;")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
         # Header row with qty spinbox and search
         header = QHBoxLayout()
@@ -155,7 +167,7 @@ class CashierDashboard(BaseWindow):
 
         # Quantity spinbox
         qty_lbl = QLabel("Qty:")
-        qty_lbl.setStyleSheet("color: #8b949e; font-size: 12px;")
+        qty_lbl.setStyleSheet("color: #64748b; font-size: 12px;")
         self.qty_spinbox = QSpinBox()
         self.qty_spinbox.setMinimum(1)
         self.qty_spinbox.setMaximum(9999)
@@ -163,11 +175,11 @@ class CashierDashboard(BaseWindow):
         self.qty_spinbox.setFixedWidth(60)
         self.qty_spinbox.setStyleSheet("""
             QSpinBox {
-                background-color: #0d1117; color: #ffffff;
-                border: 1.5px solid #30363d; border-radius: 6px;
+                background-color: #0b1120; color: #ffffff;
+                border: 1.5px solid #1e3a5f; border-radius: 6px;
                 padding: 0 6px; font-size: 13px;
             }
-            QSpinBox:focus { border-color: #1a56db; }
+            QSpinBox:focus { border-color: #f59e0b; }
         """)
 
         self.search_input = QLineEdit()
@@ -175,25 +187,34 @@ class CashierDashboard(BaseWindow):
         self.search_input.setPlaceholderText("↵ Barcode  |  Search  ↵  Checkout")
         self.search_input.setStyleSheet("""
             QLineEdit {
-                background-color: #0d1117; color: #ffffff;
-                border: 1.5px solid #30363d; border-radius: 18px;
+                background-color: #0b1120; color: #ffffff;
+                border: 1.5px solid #1e3a5f; border-radius: 18px;
                 padding: 0 16px; font-size: 13px;
             }
-            QLineEdit:focus { border-color: #1a56db; }
+            QLineEdit:focus { border-color: #f59e0b; }
         """)
         self.search_input.returnPressed.connect(self._handle_search_enter)
         self.search_input.keyPressEvent = self._search_key_press
+
+        # Enter/Return in qty spinbox → jump back to barcode search bar
+        def _qty_key_press(event):
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self.search_input.setFocus()
+                self.search_input.selectAll()
+            else:
+                QSpinBox.keyPressEvent(self.qty_spinbox, event)
+        self.qty_spinbox.keyPressEvent = _qty_key_press
 
         checkout_btn = QPushButton("Checkout")
         checkout_btn.setFixedSize(110, 36)
         checkout_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         checkout_btn.setStyleSheet("""
             QPushButton {
-                background-color: #21262d; color: #ffffff;
-                border: 1.5px solid #30363d; border-radius: 18px;
+                background-color: #1e293b; color: #ffffff;
+                border: 1.5px solid #1e3a5f; border-radius: 18px;
                 font-size: 13px; font-weight: 600;
             }
-            QPushButton:hover { background-color: #1a56db; border-color: #1a56db; }
+            QPushButton:hover { background-color: #f59e0b; border-color: #f59e0b; }
         """)
         checkout_btn.clicked.connect(self._handle_checkout)
 
@@ -205,28 +226,29 @@ class CashierDashboard(BaseWindow):
         # Search results overlay
         self.results_list = QListWidget()
         self.results_list.setVisible(False)
-        self.results_list.setFixedHeight(150)
+        self.results_list.setMinimumHeight(100)
+        self.results_list.setMaximumHeight(180)
         self.results_list.setStyleSheet("""
             QListWidget {
-                background-color: #21262d; color: #ffffff;
-                border: 1.5px solid #1a56db; border-radius: 8px;
+                background-color: #0d1e2e; color: #f0f6ff;
+                border: 2px solid #f59e0b; border-radius: 8px;
                 font-size: 13px;
             }
-            QListWidget::item { padding: 8px 14px; border-bottom: 1px solid #30363d; }
-            QListWidget::item:selected { background-color: #1a56db; }
-            QListWidget::item:hover    { background-color: #30363d; }
+            QListWidget::item { padding: 8px 14px; border-bottom: 1px solid #1e3a5f; color: #f0f6ff; }
+            QListWidget::item:selected { background-color: #f59e0b; color: #0a0400; }
+            QListWidget::item:hover    { background-color: #1e3a5f; color: #ffffff; }
         """)
         self.results_list.itemClicked.connect(self._add_from_results)
         self.results_list.keyPressEvent = self._results_key_press
 
         # Cart table
         self.cart_table = QTableWidget()
-        self.cart_table.setColumnCount(6)
+        self.cart_table.setColumnCount(7)
         self.cart_table.setHorizontalHeaderLabels(
-            ["Product", "Qty", "Price", f"Gct ({self.gct_rate:.0f}%)", "Total", "Remove"]
+            ["Product", "Qty", "Price", "Discount", f"Gct ({self.gct_rate:.0f}%)", "Total", "Remove"]
         )
         self.cart_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for col, w in enumerate([80, 100, 110, 100, 70], start=1):
+        for col, w in enumerate([80, 100, 100, 110, 100, 70], start=1):
             self.cart_table.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
             self.cart_table.setColumnWidth(col, w)
         self.cart_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -235,26 +257,26 @@ class CashierDashboard(BaseWindow):
         self.cart_table.setShowGrid(False)
         self.cart_table.setStyleSheet("""
             QTableWidget {
-                background-color: #0d1117; color: #ffffff;
+                background-color: #0b1120; color: #ffffff;
                 border: none; border-radius: 8px; font-size: 13px;
             }
             QHeaderView::section {
-                background-color: #161b22; color: #8b949e;
+                background-color: #0d1f2d; color: #64748b;
                 font-size: 13px; font-weight: 700;
                 padding: 8px; border: none;
-                border-bottom: 1px solid #30363d;
+                border-bottom: 1px solid #1e3a5f;
             }
             QTableWidget::item { padding: 6px 8px; border: none; }
-            QTableWidget::item:selected { background-color: #21262d; }
-            QScrollBar:vertical { background: #161b22; width: 6px; border-radius: 3px; }
-            QScrollBar::handle:vertical { background: #30363d; border-radius: 3px; }
+            QTableWidget::item:selected { background-color: #f59e0b33; color: #fbbf24; }
+            QScrollBar:vertical { background: #0d1f2d; width: 6px; border-radius: 3px; }
+            QScrollBar::handle:vertical { background: #1e3a5f; border-radius: 3px; }
         """)
 
         # Bottom buttons
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
         clear_btn = QPushButton("🗑  Clear Cart")
-        clear_btn.setFixedHeight(40)
+        clear_btn.setMinimumHeight(34)
         clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         clear_btn.setStyleSheet(self._action_btn_style())
         clear_btn.clicked.connect(self._clear_cart)
@@ -271,8 +293,9 @@ class CashierDashboard(BaseWindow):
     # ── Right panel — totals & cart selector ──────────────────────────
     def _build_right_panel(self):
         panel = QFrame()
-        panel.setFixedWidth(170)
-        panel.setStyleSheet("background-color: #161b22; border-radius: 10px;")
+        panel.setMinimumWidth(150)
+        panel.setMaximumWidth(200)
+        panel.setStyleSheet("background-color: #0d1f2d; border-radius: 10px;")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -281,8 +304,8 @@ class CashierDashboard(BaseWindow):
         cart_section = QFrame()
         cart_section.setStyleSheet(f"background-color: {CART_COLORS[self.active_cart]}; border: none;")
         cart_layout = QVBoxLayout(cart_section)
-        cart_layout.setContentsMargins(14, 14, 14, 14)
-        cart_layout.setSpacing(10)
+        cart_layout.setContentsMargins(10, 10, 10, 10)
+        cart_layout.setSpacing(8)
 
         self.cart_number_label = QLabel(f"Cart {self.active_cart + 1}")
         self.cart_number_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -319,8 +342,8 @@ class CashierDashboard(BaseWindow):
             f = QFrame()
             f.setStyleSheet(f"background-color: {CART_COLORS[self.active_cart]}; border: none;")
             bl = QVBoxLayout(f)
-            bl.setContentsMargins(14, 14, 14, 14)
-            bl.setSpacing(4)
+            bl.setContentsMargins(8, 8, 8, 8)
+            bl.setSpacing(3)
             line = QFrame()
             line.setFrameShape(QFrame.Shape.HLine)
             line.setStyleSheet("background-color: rgba(255,255,255,0.15); max-height:1px; border:none;")
@@ -346,20 +369,20 @@ class CashierDashboard(BaseWindow):
         self.reprint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.reprint_btn.setStyleSheet("""
             QPushButton {
-                background-color: #21262d; color: #8b949e;
-                border: 1px solid #30363d; border-radius: 6px;
+                background-color: #1e293b; color: #64748b;
+                border: 1px solid #1e3a5f; border-radius: 6px;
                 font-size: 11px; font-weight: 600;
                 margin: 6px 8px 0 8px;
             }
-            QPushButton:hover { background-color: #30363d; color: #ffffff; }
-            QPushButton:pressed { background-color: #1a56db; color: #ffffff; }
+            QPushButton:hover { background-color: #1e3a5f; color: #ffffff; }
+            QPushButton:pressed { background-color: #f59e0b; color: #ffffff; }
         """)
         self.reprint_btn.clicked.connect(self._reprint_last_receipt)
         self.reprint_btn.setVisible(False)
 
         # Change display — shown after each transaction, hidden initially
         change_frame = QFrame()
-        change_frame.setStyleSheet("background-color: #0d1117; border: none;")
+        change_frame.setStyleSheet("background-color: #0b1120; border: none;")
         change_layout = QVBoxLayout(change_frame)
         change_layout.setContentsMargins(14, 14, 14, 14)
         change_layout.setSpacing(4)
@@ -368,10 +391,10 @@ class CashierDashboard(BaseWindow):
         change_line.setStyleSheet("background-color: rgba(255,255,255,0.08); max-height:1px; border:none;")
         change_title = QLabel("Last Change")
         change_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        change_title.setStyleSheet("color:#8b949e; font-size:11px; background:transparent; text-transform:uppercase; letter-spacing:1px;")
+        change_title.setStyleSheet("color:#64748b; font-size:11px; background:transparent; text-transform:uppercase; letter-spacing:1px;")
         self.change_display = QLabel("")
         self.change_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.change_display.setStyleSheet("color:#3fb950; font-size:22px; font-weight:800; background:transparent;")
+        self.change_display.setStyleSheet("color:#10b981; font-size:22px; font-weight:800; background:transparent;")
         change_layout.addWidget(change_line)
         change_layout.addWidget(change_title)
         change_layout.addWidget(self.change_display)
@@ -504,7 +527,8 @@ class CashierDashboard(BaseWindow):
         conn = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT p.id, p.name, p.selling_price, p.discount_level, p.gct_applicable
+            SELECT p.id, p.name, p.selling_price,
+                   p.discount_level, p.discount_level_2, p.gct_applicable
             FROM products p WHERE p.barcode = ?
         """, (barcode,))
         row = cursor.fetchone()
@@ -515,7 +539,8 @@ class CashierDashboard(BaseWindow):
         conn = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT p.id, p.name, p.selling_price, p.discount_level, p.gct_applicable
+            SELECT p.id, p.name, p.selling_price,
+                   p.discount_level, p.discount_level_2, p.gct_applicable
             FROM products p
             WHERE (p.name LIKE ? OR p.brand LIKE ?)
             LIMIT 20
@@ -528,12 +553,12 @@ class CashierDashboard(BaseWindow):
         self.results_list.clear()
         if not results:
             item = QListWidgetItem("  No products found")
-            item.setForeground(QColor("#8b949e"))
+            item.setForeground(QColor("#64748b"))
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.results_list.addItem(item)
         else:
             for row in results:
-                pid, name, price, _, gct_applicable = row
+                pid, name, price, _, _, gct_applicable = row
                 gct_tag = "  [GCT]" if gct_applicable else "  [No GCT]"
                 item = QListWidgetItem(f"  {name}  —  ${price:.2f}{gct_tag}")
                 item.setData(Qt.ItemDataRole.UserRole, row)
@@ -560,7 +585,8 @@ class CashierDashboard(BaseWindow):
             qk = self.quick_keys[idx]
             self._add_to_cart((
                 qk["id"], qk["name"], qk["price"],
-                qk.get("discount_level"), qk.get("gct_applicable", 1)
+                qk.get("discount_level"), qk.get("discount_level_2"),
+                qk.get("gct_applicable", 1)
             ), qty)
             self.qty_spinbox.setValue(1)
 
@@ -569,34 +595,70 @@ class CashierDashboard(BaseWindow):
     # ----------------------------------------------------------------
 
     def _add_to_cart(self, product, qty=1):
-        pid, name, price, discount_level, gct_applicable = product
-        gct   = round(price * (self.gct_rate / 100), 2) if gct_applicable else 0.0
-        total = round((price + gct) * qty, 2)
+        pid, name, price, disc_level_id, disc_level2_id, gct_applicable = product
+        gct = round(price * (self.gct_rate / 100), 2) if gct_applicable else 0.0
 
         # Fetch cost for profit snapshot at checkout
         cost = 0.0
         if pid:
             conn = get_products_conn()
-            row = conn.execute("SELECT cost FROM products WHERE id = ?", (pid,)).fetchone()
+            row  = conn.execute("SELECT cost FROM products WHERE id=?", (pid,)).fetchone()
             conn.close()
             if row:
                 cost = row[0]
 
+        # Merge into existing cart item if same product
         for item in self.cart:
             if item["id"] == pid:
-                item["qty"]  += qty
-                item["total"] = round((item["price"] + item["gct"]) * item["qty"], 2)
+                item["qty"] += qty
+                self._apply_discount(item)
                 self._refresh_table()
                 self._update_totals()
                 return
 
-        self.cart.append({
-            "id": pid, "name": name, "qty": qty,
-            "price": price, "cost": cost, "gct": gct, "total": total,
-            "gct_applicable": gct_applicable,
-        })
+        # New cart item
+        item = {
+            "id":               pid,
+            "name":             name,
+            "qty":              qty,
+            "price":            price,
+            "cost":             cost,
+            "gct":              gct,
+            "gct_applicable":   gct_applicable,
+            "disc_level_id":    disc_level_id,
+            "disc_level2_id":   disc_level2_id,
+            "discount_applied": 0.0,
+            "total":            round((price + gct) * qty, 2),
+        }
+        self._apply_discount(item)
+        self.cart.append(item)
         self._refresh_table()
         self._update_totals()
+
+    def _apply_discount(self, item):
+        """
+        Apply the correct discount tier based on current qty.
+        Level 2 (higher qty) takes priority over level 1.
+        Sets item['discount_applied'] (per-unit $ off) and recalculates item['total'].
+        """
+        qty   = item["qty"]
+        price = item["price"]
+        gct   = item["gct"]
+        rules = self.discount_rules
+
+        disc_pct = 0.0
+        lvl2 = rules.get(item.get("disc_level2_id"))
+        lvl1 = rules.get(item.get("disc_level_id"))
+
+        if lvl2 and qty >= lvl2["min_qty"]:
+            disc_pct = lvl2["pct"]
+        elif lvl1 and qty >= lvl1["min_qty"]:
+            disc_pct = lvl1["pct"]
+
+        disc_per_unit            = round(price * disc_pct / 100, 2)
+        item["discount_applied"] = disc_per_unit
+        item["total"]            = round((price - disc_per_unit + gct) * qty, 2)
+
 
     def _refresh_table(self):
         self.cart_table.setRowCount(len(self.cart))
@@ -608,23 +670,32 @@ class CashierDashboard(BaseWindow):
                 c.setForeground(QColor(color))
                 c.setTextAlignment(align)
                 return c
+            disc = item.get("discount_applied", 0.0)
+            disc_total = round(disc * item["qty"], 2)
+            disc_color = "#f0a030" if disc > 0 else "#484f58"  # amber if active, grey if none
+
             self.cart_table.setItem(row, 0, cell(item["name"]))
-            self.cart_table.setItem(row, 1, cell(item["qty"],                align=center))
+            self.cart_table.setItem(row, 1, cell(item["qty"], align=center))
             self.cart_table.setItem(row, 2, cell(f"${item['price']:.2f}", "#4493f8", center))
-            self.cart_table.setItem(row, 3, cell(f"${item['gct'] * item['qty']:.2f}",   "#4493f8", center))
-            self.cart_table.setItem(row, 4, cell(f"${item['total']:.2f}", "#4493f8", center))
+            self.cart_table.setItem(row, 3, cell(
+                f"-${disc_total:.2f}" if disc > 0 else "—", disc_color, center
+            ))
+            self.cart_table.setItem(row, 4, cell(f"${item['gct'] * item['qty']:.2f}", "#4493f8", center))
+            self.cart_table.setItem(row, 5, cell(f"${item['total']:.2f}", "#4493f8", center))
             remove_btn = QPushButton("✕")
             remove_btn.setStyleSheet("""
                 QPushButton {
-                    background-color: transparent; color: #f85149;
+                    background-color: #2a0a0a; color: #f87171;
                     border: 1.5px solid #f85149; border-radius: 4px;
-                    font-size: 12px; font-weight: 700;
+                    font-size: 13px; font-weight: 800;
+                    min-width: 26px; min-height: 26px;
                 }
                 QPushButton:hover { background-color: #f85149; color: #fff; }
+                QPushButton:pressed { background-color: #b91c1c; }
             """)
             remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             remove_btn.clicked.connect(lambda _, r=row: self._remove_from_cart(r))
-            self.cart_table.setCellWidget(row, 5, remove_btn)
+            self.cart_table.setCellWidget(row, 6, remove_btn)
             self.cart_table.setRowHeight(row, 38)
 
     def _remove_from_cart(self, row):
@@ -641,7 +712,7 @@ class CashierDashboard(BaseWindow):
     def _update_totals(self):
         subtotal = sum(item["price"] * item["qty"] for item in self.cart)
         gct      = sum(item["gct"]   * item["qty"] for item in self.cart)
-        discount = 0.0
+        discount = sum(item.get("discount_applied", 0.0) * item["qty"] for item in self.cart)
         total    = subtotal + gct - discount
         self.subtotal_label.setText(f"${subtotal:.2f}")
         self.gct_label.setText(f"${gct:.2f}")
@@ -687,7 +758,16 @@ class CashierDashboard(BaseWindow):
         if not self.cart:
             return
         from ui.dialogs import VoidDialog
-        VoidDialog(self).exec()
+        dialog = VoidDialog(self.cart, self.user_id, self)
+        if dialog.exec():
+            # Authorised — clear the cart and show confirmation
+            self._clear_cart()
+            self.search_input.setFocus()
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(
+                self, "Cart Voided",
+                f"Cart voided and authorised by {dialog.authorised_by}."
+            )
 
     # ----------------------------------------------------------------
     # LOGOUT
@@ -721,7 +801,8 @@ class CashierDashboard(BaseWindow):
         conn = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT p.id, p.name, p.selling_price, p.discount_level, p.gct_applicable
+            SELECT p.id, p.name, p.selling_price,
+                   p.discount_level, p.discount_level_2, p.gct_applicable
             FROM products p
             INNER JOIN quick_keys qk ON qk.product_id = p.id
             ORDER BY qk.key_number ASC LIMIT 8
@@ -730,9 +811,21 @@ class CashierDashboard(BaseWindow):
         conn.close()
         return [
             {"id": r[0], "name": r[1], "price": r[2],
-             "discount_level": r[3], "gct_applicable": r[4]}
+             "discount_level": r[3], "discount_level_2": r[4], "gct_applicable": r[5]}
             for r in rows
         ]
+
+    def _load_discount_rules(self):
+        """Load all discount levels into a dict keyed by id for fast lookup."""
+        try:
+            conn = get_products_conn()
+            rows = conn.execute(
+                "SELECT id, min_quantity, discount_percent FROM discount_levels"
+            ).fetchall()
+            conn.close()
+            return {r[0]: {"min_qty": r[1], "pct": r[2]} for r in rows}
+        except Exception:
+            return {}
 
     # ----------------------------------------------------------------
     # STYLE HELPERS
@@ -748,31 +841,32 @@ class CashierDashboard(BaseWindow):
     def _fkey_style(self, disabled=False):
         if disabled:
             return """QPushButton {
-                background-color: #21262d; color: #484f58;
-                border: 1px solid #30363d; border-radius: 8px; font-size: 10px;
+                background-color: #1e293b; color: #484f58;
+                border: 1px solid #1e3a5f; border-radius: 8px; font-size: 10px;
             }"""
         return """QPushButton {
-                background-color: #21262d; color: #ffffff;
-                border: 1px solid #30363d; border-radius: 8px;
+                background-color: #1e293b; color: #ffffff;
+                border: 1px solid #1e3a5f; border-radius: 8px;
                 font-size: 10px; text-align: center;
             }
-            QPushButton:hover   { background-color: #1a56db; border-color: #1a56db; }
-            QPushButton:pressed { background-color: #1145b0; }"""
+            QPushButton:hover   { background-color: #f59e0b; border-color: #f59e0b; }
+            QPushButton:pressed { background-color: #d97706; }"""
 
     def _arrow_btn_style(self):
         return """QPushButton {
-                background-color: rgba(255,255,255,0.1); color: #ffffff;
-                border: 1.5px solid rgba(255,255,255,0.2); border-radius: 18px;
-                font-size: 16px; font-weight: 700;
+                background-color: rgba(0,0,0,0.35); color: #ffffff;
+                border: 2px solid rgba(255,255,255,0.55); border-radius: 18px;
+                font-size: 18px; font-weight: 800;
+                min-width: 36px; min-height: 36px;
             }
-            QPushButton:hover   { background-color: rgba(255,255,255,0.2); }
-            QPushButton:pressed { background-color: rgba(255,255,255,0.3); }"""
+            QPushButton:hover   { background-color: rgba(0,0,0,0.55); border-color: #ffffff; }
+            QPushButton:pressed { background-color: rgba(0,0,0,0.7); }"""
 
     def _action_btn_style(self):
         return """QPushButton {
-                background-color: #21262d; color: #ffffff;
-                border: 1.5px solid #30363d; border-radius: 20px;
+                background-color: #1e293b; color: #ffffff;
+                border: 1.5px solid #1e3a5f; border-radius: 20px;
                 font-size: 13px; font-weight: 600; padding: 0 20px;
             }
-            QPushButton:hover   { background-color: #30363d; }
+            QPushButton:hover   { background-color: #1e3a5f; }
             QPushButton:pressed { background-color: #484f58; }"""

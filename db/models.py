@@ -87,7 +87,9 @@ def create_products_tables():
             barcode        TEXT    NOT NULL UNIQUE,
             brand          TEXT,
             name           TEXT    NOT NULL,
-            price          REAL    NOT NULL DEFAULT 0.0,
+            cost           REAL    NOT NULL DEFAULT 0.0,
+            selling_price  REAL    NOT NULL DEFAULT 0.0,
+            price          REAL    NOT NULL DEFAULT 0.0,  -- legacy alias for selling_price
             alias_id       INTEGER REFERENCES aliases(id) ON UPDATE CASCADE ON DELETE SET NULL,
             group_id       INTEGER REFERENCES product_groups(id) ON DELETE SET NULL,
             discount_level  INTEGER REFERENCES discount_levels(id) ON DELETE SET NULL,
@@ -106,6 +108,18 @@ def create_products_tables():
         cursor.execute(
             "ALTER TABLE products ADD COLUMN "
             "discount_level_2 INTEGER REFERENCES discount_levels(id) ON DELETE SET NULL"
+        )
+    if "cost" not in existing_prod_cols:
+        cursor.execute(
+            "ALTER TABLE products ADD COLUMN cost REAL NOT NULL DEFAULT 0.0"
+        )
+    if "selling_price" not in existing_prod_cols:
+        # Seed selling_price from price column for existing rows
+        cursor.execute(
+            "ALTER TABLE products ADD COLUMN selling_price REAL NOT NULL DEFAULT 0.0"
+        )
+        cursor.execute(
+            "UPDATE products SET selling_price = price WHERE selling_price = 0.0 AND price > 0"
         )
 
     # Quick keys — F1-F8 shortcuts assigned by manager
