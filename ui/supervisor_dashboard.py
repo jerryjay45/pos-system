@@ -2655,6 +2655,7 @@ class SupervisorDashboard(BaseWindow):
             }
         """)
         self.label_product_table.currentItemChanged.connect(self._label_on_row_changed)
+        self.label_product_table.itemChanged.connect(self._label_on_item_changed)
 
         layout.addLayout(toolbar)
         layout.addWidget(self.label_product_table, stretch=1)
@@ -2764,6 +2765,22 @@ class SupervisorDashboard(BaseWindow):
         """)
         self.label_print_btn.clicked.connect(self._label_print)
 
+        self.label_pdf_btn = QPushButton("💾  Save as PDF")
+        self.label_pdf_btn.setFixedHeight(36)
+        self.label_pdf_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.label_pdf_btn.setEnabled(False)
+        self.label_pdf_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #14532d; color: #86efac;
+                border: none; border-radius: 8px;
+                font-size: 12px; font-weight: 600;
+            }
+            QPushButton:hover   { background-color: #166534; }
+            QPushButton:pressed { background-color: #15803d; }
+            QPushButton:disabled { background-color: #0d2b18; color: #3a6b4a; }
+        """)
+        self.label_pdf_btn.clicked.connect(lambda: self._label_print(save_pdf=True))
+
         self.label_status = QLabel("")
         self.label_status.setStyleSheet("color: #3fb950; font-size: 12px;")
         self.label_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2790,6 +2807,7 @@ class SupervisorDashboard(BaseWindow):
         layout.addLayout(copies_row)
         layout.addStretch()
         layout.addWidget(self.label_print_btn)
+        layout.addWidget(self.label_pdf_btn)
         layout.addWidget(self.label_status)
 
         return panel
@@ -2802,38 +2820,70 @@ class SupervisorDashboard(BaseWindow):
         if query:
             like = f"%{query}%"
             cursor.execute("""
-                SELECT p.id, p.name, p.barcode, p.brand, p.selling_price, p.alias_id
+                SELECT p.id, p.name, p.barcode, p.brand, p.selling_price,
+                       p.alias_id, p.gct_applicable, p.discount_level
                 FROM products p
                 WHERE p.name LIKE ? OR p.barcode LIKE ? OR p.brand LIKE ?
                 ORDER BY p.name
             """, (like, like, like))
         else:
             cursor.execute("""
-                SELECT p.id, p.name, p.barcode, p.brand, p.selling_price, p.alias_id
+                SELECT p.id, p.name, p.barcode, p.brand, p.selling_price,
+                       p.alias_id, p.gct_applicable, p.discount_level
                 FROM products p ORDER BY p.name
             """)
         rows = cursor.fetchall()
         conn.close()
 
+        # Fetch GCT rate once
+        try:
+            from db import get_business_conn
+            bconn = get_business_conn()
+            gct_row = bconn.execute("SELECT tax_percent FROM business_info WHERE id=1").fetchone()
+            bconn.close()
+            gct_rate = gct_row[0] if gct_row else 16.5
+        except Exception:
+            gct_rate = 16.5
+
+        # Fetch all discount tiers (sorted cheapest first = highest qty first)
+        try:
+            from db import get_products_conn as _gpc
+            dconn = _gpc()
+            disc_tiers = dconn.execute(
+                "SELECT id, level_name, min_quantity, discount_percent "
+                "FROM discount_levels ORDER BY min_quantity ASC"
+            ).fetchall()
+            dconn.close()
+            # dict: level_id -> list of (min_qty, discount_pct)
+            self._label_disc_tiers = {r[0]: (r[2], r[3]) for r in disc_tiers}
+        except Exception:
+            self._label_disc_tiers = {}
+
         tbl = self.label_product_table
+        tbl.blockSignals(True)
         tbl.setRowCount(0)
         self._label_products = {}
 
-        for pid, name, barcode, brand, price, alias_id in rows:
+        for pid, name, barcode, brand, price, alias_id, gct_applicable, disc_level_id in rows:
             row = tbl.rowCount()
             tbl.insertRow(row)
 
-            # Checkbox cell
-            chk = QCheckBox()
-            chk.setChecked(pid in self._label_checked)
-            chk.setStyleSheet("margin-left: 10px;")
-            chk.stateChanged.connect(lambda state, p=pid: self._label_on_check(p, state))
-            cell_w = QWidget(); cell_l = QHBoxLayout(cell_w)
-            cell_l.addWidget(chk); cell_l.setContentsMargins(6, 0, 0, 0)
-            tbl.setCellWidget(row, 0, cell_w)
+            # Native Qt checkable item — always visible, no widget needed
+            chk_item = QTableWidgetItem()
+            chk_item.setData(Qt.ItemDataRole.UserRole, pid)
+            chk_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled |
+                Qt.ItemFlag.ItemIsSelectable |
+                Qt.ItemFlag.ItemIsUserCheckable
+            )
+            chk_item.setCheckState(
+                Qt.CheckState.Checked if pid in self._label_checked
+                else Qt.CheckState.Unchecked
+            )
+            chk_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
             name_item = QTableWidgetItem(name)
-            name_item.setData(Qt.ItemDataRole.UserRole, pid)
+            name_item.setData(Qt.ItemDataRole.UserRole + 1, pid)  # secondary store
             name_item.setForeground(QColor("#ffffff"))
 
             brand_item = QTableWidgetItem(brand or "")
@@ -2846,29 +2896,56 @@ class SupervisorDashboard(BaseWindow):
             price_item.setForeground(QColor("#3fb950"))
             price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
+            tbl.setItem(row, 0, chk_item)
             tbl.setItem(row, 1, name_item)
             tbl.setItem(row, 2, brand_item)
             tbl.setItem(row, 3, bc_item)
             tbl.setItem(row, 4, price_item)
             tbl.setRowHeight(row, 34)
 
+            # Build discount tiers for this product
+            disc_rows = []
+            if disc_level_id and disc_level_id in self._label_disc_tiers:
+                min_q, pct = self._label_disc_tiers[disc_level_id]
+                disc_rows.append((min_q, round(price * (1 - pct / 100), 2)))
+            # Also show ALL tiers for simplicity (product level is the threshold tier)
+            # Actually include all tiers that would apply at that level
+            for tid, (min_q, pct) in sorted(self._label_disc_tiers.items(), key=lambda x: x[1][0]):
+                discounted = round(price * (1 - pct / 100), 2)
+                if (min_q, discounted) not in disc_rows:
+                    disc_rows.append((min_q, discounted))
+
             self._label_products[pid] = {
-                "name":     name,
-                "barcode":  barcode or "",
-                "brand":    brand or "",
-                "price":    price,
-                "alias_id": alias_id,
+                "name":           name,
+                "barcode":        barcode or "",
+                "brand":          brand or "",
+                "price":          price,
+                "alias_id":       alias_id,
+                "gct_applicable": bool(gct_applicable),
+                "gct_rate":       gct_rate,
+                "disc_rows":      disc_rows,   # list of (min_qty, discounted_price)
             }
 
+        tbl.blockSignals(False)
         self._label_refresh_count()
 
-    def _label_on_check(self, pid, state):
-        if state == Qt.CheckState.Checked.value:
+    def _label_on_item_changed(self, item):
+        """Handle native checkbox state changes in the product table."""
+        if item.column() != 0:
+            return
+        pid = item.data(Qt.ItemDataRole.UserRole)
+        if pid is None:
+            return
+        if item.checkState() == Qt.CheckState.Checked:
             self._label_checked.add(pid)
         else:
             self._label_checked.discard(pid)
         self._label_refresh_count()
-        self.label_print_btn.setEnabled(bool(self._label_checked))
+        # Guard: buttons may not exist yet if signal fires during initial table build
+        if hasattr(self, "label_print_btn"):
+            self.label_print_btn.setEnabled(bool(self._label_checked))
+        if hasattr(self, "label_pdf_btn"):
+            self.label_pdf_btn.setEnabled(bool(self._label_checked))
 
     def _label_refresh_count(self):
         n = len(self._label_checked)
@@ -2876,11 +2953,27 @@ class SupervisorDashboard(BaseWindow):
 
     def _label_select_all(self):
         self._label_checked = set(self._label_products.keys())
-        self._label_load_products(self.label_search.text().strip())
+        tbl = self.label_product_table
+        tbl.blockSignals(True)
+        for r in range(tbl.rowCount()):
+            item = tbl.item(r, 0)
+            if item:
+                item.setCheckState(Qt.CheckState.Checked)
+        tbl.blockSignals(False)
+        self._label_refresh_count()
+        self.label_print_btn.setEnabled(bool(self._label_checked))
+        self.label_pdf_btn.setEnabled(bool(self._label_checked))
 
     def _label_clear_selection(self):
         self._label_checked.clear()
-        self._label_load_products(self.label_search.text().strip())
+        tbl = self.label_product_table
+        tbl.blockSignals(True)
+        for r in range(tbl.rowCount()):
+            item = tbl.item(r, 0)
+            if item:
+                item.setCheckState(Qt.CheckState.Unchecked)
+        tbl.blockSignals(False)
+        self._label_refresh_count()
         self.label_print_btn.setEnabled(False)
 
     def _label_filter_products(self, text):
@@ -2891,10 +2984,10 @@ class SupervisorDashboard(BaseWindow):
         if not current:
             return
         row = current.row()
-        name_item = self.label_product_table.item(row, 1)
-        if not name_item:
+        chk_item = self.label_product_table.item(row, 0)
+        if not chk_item:
             return
-        pid  = name_item.data(Qt.ItemDataRole.UserRole)
+        pid  = chk_item.data(Qt.ItemDataRole.UserRole)
         data = self._label_products.get(pid)
         if data:
             self.label_preview.set_product(data)
@@ -2933,7 +3026,7 @@ class SupervisorDashboard(BaseWindow):
                 siblings.append((other_pid, other_data))
         return siblings
 
-    def _label_print(self):
+    def _label_print(self, save_pdf=False):
         if not self._label_checked:
             return
 
@@ -3038,9 +3131,20 @@ class SupervisorDashboard(BaseWindow):
                 printer.setPageLayout(layout)
                 cols = 1
 
-            dlg = QPrintDialog(printer, self)
-            if dlg.exec() != QPrintDialog.DialogCode.Accepted:
-                return
+            if save_pdf:
+                from PyQt6.QtWidgets import QFileDialog
+                pdf_path, _ = QFileDialog.getSaveFileName(
+                    self, "Save Labels as PDF", "labels.pdf",
+                    "PDF Files (*.pdf)"
+                )
+                if not pdf_path:
+                    return
+                printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+                printer.setOutputFileName(pdf_path)
+            else:
+                dlg = QPrintDialog(printer, self)
+                if dlg.exec() != QPrintDialog.DialogCode.Accepted:
+                    return
 
             from PyQt6.QtGui import QPainter
             painter = QPainter()
@@ -3103,9 +3207,14 @@ class SupervisorDashboard(BaseWindow):
 
             painter.end()
             total = len(job)
-            self.label_status.setText(
-                f"✅  Printed {total} label(s) for {len(selected_pids)} product(s)."
-            )
+            if save_pdf:
+                self.label_status.setText(
+                    f"✅  Saved {total} label(s) to PDF."
+                )
+            else:
+                self.label_status.setText(
+                    f"✅  Printed {total} label(s) for {len(selected_pids)} product(s)."
+                )
 
         except Exception as e:
             self.label_status.setText(f"❌  {e}")
@@ -3210,8 +3319,13 @@ class _LabelPreviewWidget(QWidget):
 
 def _draw_label(painter, rect, product, options, preview=False):
     """
-    Draw label content into `rect` using `painter`.
-    Works for both the live preview (screen coords) and actual printing (device pixels).
+    Draw price-tag label content into `rect` using `painter`.
+    Layout (top → bottom):
+      Brand (small italic)
+      Name (bold)
+      Main price + "(inc. GCT)" tag if applicable
+      Discount tier rows (smaller, each "buy N+ → $X.XX")
+      Barcode strip (compact, ~20% of height)
     """
     show_name    = options.get("show_name", True)
     show_brand   = options.get("show_brand", True)
@@ -3222,71 +3336,105 @@ def _draw_label(painter, rect, product, options, preview=False):
     brand   = product.get("brand", "")
     price   = product.get("price", 0.0)
     barcode = product.get("barcode", "")
+    gct_ok  = product.get("gct_applicable", False)
+    gct_rate= product.get("gct_rate", 16.5)
+    disc_rows = product.get("disc_rows", [])   # list of (min_qty, discounted_price)
 
-    x  = rect.x()
-    y  = rect.y()
-    w  = rect.width()
-    h  = rect.height()
-    pad = w * 0.05
-
-    # Count visible sections to distribute vertical space
-    sections = sum([show_name, show_brand, show_price, show_barcode])
-    if sections == 0:
-        return
-
-    # Reserve barcode strip height (40% of label) if shown
-    barcode_h = h * 0.40 if show_barcode else 0
-    text_h    = h - barcode_h
-    row_h     = text_h / max(sections - (1 if show_barcode else 0), 1)
-
-    current_y = y + pad
+    x   = rect.x()
+    y   = rect.y()
+    w   = rect.width()
+    h   = rect.height()
+    pad = max(w * 0.04, 2.0)
 
     painter.save()
     painter.setClipRect(rect)
 
-    # ── Brand ────────────────────────────────────────────────────────
+    # ── Reserve vertical space ────────────────────────────────────────
+    # Barcode takes 22% (compact strip), discount rows take ~14% each (max 2 shown)
+    shown_disc = disc_rows[:2]                          # show at most 2 tiers
+    barcode_h  = h * 0.22 if show_barcode else 0
+    disc_h     = (h * 0.13 * len(shown_disc)) if (show_price and shown_disc) else 0
+    text_h     = h - barcode_h - disc_h
+
+    text_sections = sum([show_brand and bool(brand), show_name, show_price])
+    row_h = text_h / max(text_sections, 1)
+
+    cur_y = y + pad * 0.5
+
+    # ── Brand ─────────────────────────────────────────────────────────
     if show_brand and brand:
-        font = QFont("Arial", max(int(row_h * 0.28), 5))
+        fsize = max(int(row_h * 0.25), 5)
+        font = QFont("Arial", fsize)
         font.setItalic(True)
         painter.setFont(font)
-        painter.setPen(QColor("#555555") if preview else QColor("#444444"))
-        text_rect = QRectF(x + pad, current_y, w - pad * 2, row_h * 0.5)
-        painter.drawText(text_rect,
-                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        painter.setPen(QColor("#555555") if preview else QColor("#555555"))
+        tr = QRectF(x + pad, cur_y, w - pad * 2, row_h * 0.45)
+        painter.drawText(tr, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                          brand.upper())
-        current_y += row_h * 0.5
+        cur_y += row_h * 0.45
 
-    # ── Name ─────────────────────────────────────────────────────────
+    # ── Name ──────────────────────────────────────────────────────────
     if show_name and name:
-        font = QFont("Arial", max(int(row_h * 0.38), 6))
+        fsize = max(int(row_h * 0.32), 6)
+        font = QFont("Arial", fsize)
         font.setBold(True)
         painter.setFont(font)
         painter.setPen(QColor("#000000"))
-        text_rect = QRectF(x + pad, current_y, w - pad * 2, row_h * 0.65)
-        # Elide name if too long
-        fm   = QFontMetrics(font)
+        tr = QRectF(x + pad, cur_y, w - pad * 2, row_h * 0.55)
+        fm = QFontMetrics(font)
         elided = fm.elidedText(name, Qt.TextElideMode.ElideRight, int(w - pad * 2))
-        painter.drawText(text_rect,
-                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                         elided)
-        current_y += row_h * 0.65
+        painter.drawText(tr, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, elided)
+        cur_y += row_h * 0.58
 
-    # ── Price ─────────────────────────────────────────────────────────
+    # ── Main price + GCT tag ──────────────────────────────────────────
     if show_price:
-        price_str = f"${price:.2f}"
-        font = QFont("Arial", max(int(row_h * 0.55), 7))
+        price_h = row_h * 0.72
+
+        # Big price on the right
+        fsize = max(int(price_h * 0.72), 7)
+        font = QFont("Arial", fsize)
         font.setBold(True)
         painter.setFont(font)
         painter.setPen(QColor("#1a56db") if preview else QColor("#000080"))
-        text_rect = QRectF(x + pad, current_y, w - pad * 2, row_h * 0.7)
-        painter.drawText(text_rect,
-                         Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                         price_str)
-        current_y += row_h * 0.7
+        price_str = f"${price:.2f}"
+        fm = QFontMetrics(font)
+        price_w = fm.horizontalAdvance(price_str)
+        painter.drawText(
+            QRectF(x + w - pad - price_w - 2, cur_y, price_w + 4, price_h),
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            price_str
+        )
 
-    # ── Barcode ───────────────────────────────────────────────────────
-    if show_barcode and barcode:
-        bc_rect = QRectF(x + pad, current_y, w - pad * 2, barcode_h - pad)
+        # GCT tag (small, to the left of the price)
+        if gct_ok:
+            tag_fsize = max(int(price_h * 0.28), 5)
+            tag_font = QFont("Arial", tag_fsize)
+            painter.setFont(tag_font)
+            painter.setPen(QColor("#b45309") if preview else QColor("#92400e"))
+            tag_str = f"incl. GCT {gct_rate:.0f}%"
+            tag_rect = QRectF(x + pad, cur_y + price_h * 0.55, w - pad * 2 - price_w - 6, price_h * 0.42)
+            painter.drawText(tag_rect,
+                             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                             tag_str)
+
+        cur_y += price_h
+
+        # ── Discount tier rows ─────────────────────────────────────────
+        for (min_qty, disc_price) in shown_disc:
+            tier_h = h * 0.13
+            fsize = max(int(tier_h * 0.58), 5)
+            font = QFont("Arial", fsize)
+            painter.setFont(font)
+            painter.setPen(QColor("#15803d") if preview else QColor("#166534"))
+            tier_str = f"buy {min_qty}+  →  ${disc_price:.2f}"
+            tr = QRectF(x + pad, cur_y, w - pad * 2, tier_h)
+            painter.drawText(tr, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                             tier_str)
+            cur_y += tier_h
+
+    # ── Barcode strip (compact) ───────────────────────────────────────
+    if show_barcode and barcode and barcode_h > 4:
+        bc_rect = QRectF(x + pad, cur_y + 1, w - pad * 2, barcode_h - 2)
         _draw_barcode_bars(painter, bc_rect, barcode, preview)
 
     painter.restore()
