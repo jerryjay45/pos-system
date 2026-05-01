@@ -87,10 +87,9 @@ def create_products_tables():
             barcode        TEXT    NOT NULL UNIQUE,
             brand          TEXT,
             name           TEXT    NOT NULL,
-            cost           REAL    NOT NULL DEFAULT 0.0,  -- purchase/wholesale price (singles only; cases derive from alias single)
-            selling_price  REAL    NOT NULL DEFAULT 0.0,  -- computed: cost*(1+group_profit%) for singles, case_cost*(1+case_profit%) for cases
+            price          REAL    NOT NULL DEFAULT 0.0,
             alias_id       INTEGER REFERENCES aliases(id) ON UPDATE CASCADE ON DELETE SET NULL,
-            group_id       INTEGER REFERENCES product_groups(id) ON DELETE SET NULL,  -- NULL for cases and standalone no-group products
+            group_id       INTEGER REFERENCES product_groups(id) ON DELETE SET NULL,
             discount_level INTEGER REFERENCES discount_levels(id) ON DELETE SET NULL,
             is_case        INTEGER NOT NULL DEFAULT 0,  -- 0 = single, 1 = case
             case_quantity  INTEGER DEFAULT 1,
@@ -118,19 +117,6 @@ def create_products_tables():
             "INSERT OR IGNORE INTO product_groups (group_name, profit_percent) VALUES (?,?)",
             (name, profit)
         )
-
-    # ── Migration: rename price → cost, add selling_price if upgrading ──
-    existing_prod_cols = {r[1] for r in cursor.execute(
-        "PRAGMA table_info(products)"
-    ).fetchall()}
-    if "price" in existing_prod_cols and "cost" not in existing_prod_cols:
-        cursor.execute("ALTER TABLE products RENAME COLUMN price TO cost")
-    if "selling_price" not in existing_prod_cols:
-        cursor.execute(
-            "ALTER TABLE products ADD COLUMN selling_price REAL NOT NULL DEFAULT 0.0"
-        )
-        # Seed selling_price = cost for existing products (no group profit info available here)
-        cursor.execute("UPDATE products SET selling_price = cost WHERE selling_price = 0.0")
 
     conn.commit()
     conn.close()
@@ -171,13 +157,22 @@ def create_business_tables():
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS business_info (
-            id                  INTEGER PRIMARY KEY DEFAULT 1,
-            business_name       TEXT,
-            address             TEXT,
-            phone               TEXT,
-            tax_percent         REAL    NOT NULL DEFAULT 16.5,
-            receipt_footer      TEXT    DEFAULT 'Thank you for your purchase!',
-            case_profit_percent REAL    NOT NULL DEFAULT 14.0
+            id                   INTEGER PRIMARY KEY DEFAULT 1,
+            business_name        TEXT,
+            address              TEXT,
+            phone                TEXT,
+            tax_percent          REAL    NOT NULL DEFAULT 16.5,
+            receipt_footer       TEXT    DEFAULT 'Thank you for your purchase!',
+            case_profit_percent  REAL    NOT NULL DEFAULT 14.0,
+            -- Printer settings
+            printer_type         TEXT    NOT NULL DEFAULT 'auto',
+            thermal_connection   TEXT    NOT NULL DEFAULT 'usb',
+            thermal_port         TEXT    NOT NULL DEFAULT '',
+            thermal_vendor_id    INTEGER          DEFAULT 0,
+            thermal_product_id   INTEGER          DEFAULT 0,
+            paper_size           TEXT    NOT NULL DEFAULT 'A4',
+            normal_printer_name  TEXT             DEFAULT '',
+            receipt_layout       TEXT    NOT NULL DEFAULT 'gct_column'
         )
     """)
 
@@ -185,6 +180,26 @@ def create_business_tables():
     cursor.execute("""
         INSERT OR IGNORE INTO business_info (id, tax_percent) VALUES (1, 16.5)
     """)
+
+    # ── Migration: add printer/layout columns if upgrading ────────────
+    existing_biz_cols = {r[1] for r in cursor.execute(
+        "PRAGMA table_info(business_info)"
+    ).fetchall()}
+    biz_migrations = [
+        ("printer_type",        "TEXT NOT NULL DEFAULT 'auto'"),
+        ("thermal_connection",  "TEXT NOT NULL DEFAULT 'usb'"),
+        ("thermal_port",        "TEXT NOT NULL DEFAULT ''"),
+        ("thermal_vendor_id",   "INTEGER DEFAULT 0"),
+        ("thermal_product_id",  "INTEGER DEFAULT 0"),
+        ("paper_size",          "TEXT NOT NULL DEFAULT 'A4'"),
+        ("normal_printer_name", "TEXT DEFAULT ''"),
+        ("receipt_layout",      "TEXT NOT NULL DEFAULT 'gct_column'"),
+    ]
+    for col, definition in biz_migrations:
+        if col not in existing_biz_cols:
+            cursor.execute(
+                f"ALTER TABLE business_info ADD COLUMN {col} {definition}"
+            )
 
     conn.commit()
     conn.close()
@@ -251,16 +266,36 @@ def create_transactions_tables():
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id        INTEGER NOT NULL REFERENCES sessions(id),
             cashier_id        INTEGER NOT NULL,
-            cashier_name      TEXT    NOT NULL,  -- snapshot
+            cashier_name      TEXT    NOT NULL,
             date              TEXT    NOT NULL,
             time              TEXT    NOT NULL,
             subtotal          REAL    NOT NULL DEFAULT 0.0,
             tax_amount        REAL    NOT NULL DEFAULT 0.0,
+            discount_total    REAL    NOT NULL DEFAULT 0.0,
             total             REAL    NOT NULL DEFAULT 0.0,
+            cash_tendered     REAL    NOT NULL DEFAULT 0.0,
+            change_given      REAL    NOT NULL DEFAULT 0.0,
             status            TEXT    NOT NULL DEFAULT 'completed'
-                              CHECK(status IN ('completed','voided','refunded'))
+                              CHECK(status IN ('completed','voided','refunded')),
+            void_reason       TEXT    DEFAULT ''
         )
     """)
+
+    # ── Migration: add cash_tendered / change_given / void_reason / discount_total ──
+    existing_tx_cols = {r[1] for r in cursor.execute(
+        "PRAGMA table_info(transactions)"
+    ).fetchall()}
+    tx_migrations = [
+        ("cash_tendered",  "REAL NOT NULL DEFAULT 0.0"),
+        ("change_given",   "REAL NOT NULL DEFAULT 0.0"),
+        ("void_reason",    "TEXT DEFAULT ''"),
+        ("discount_total", "REAL NOT NULL DEFAULT 0.0"),
+    ]
+    for col, definition in tx_migrations:
+        if col not in existing_tx_cols:
+            cursor.execute(
+                f"ALTER TABLE transactions ADD COLUMN {col} {definition}"
+            )
 
     # Transaction items — snapshot of product at time of sale
     # Stored independently — deleting a product won't break history
@@ -271,23 +306,13 @@ def create_transactions_tables():
             product_id            INTEGER,        -- reference only, may be NULL if deleted
             product_name_snapshot TEXT    NOT NULL,  -- snapshot
             barcode_snapshot      TEXT    NOT NULL,  -- snapshot
-            cost_snapshot         REAL    NOT NULL DEFAULT 0.0, -- cost at time of sale
-            unit_price_snapshot   REAL    NOT NULL,  -- selling_price at time of sale
+            unit_price_snapshot   REAL    NOT NULL,  -- snapshot
             quantity              INTEGER NOT NULL DEFAULT 1,
             gct_applicable        INTEGER NOT NULL DEFAULT 1,
             discount_applied      REAL    NOT NULL DEFAULT 0.0,
             line_total            REAL    NOT NULL
         )
     """)
-
-    # ── Migration: add cost_snapshot if upgrading from old schema ──
-    existing_item_cols = {r[1] for r in cursor.execute(
-        "PRAGMA table_info(transaction_items)"
-    ).fetchall()}
-    if "cost_snapshot" not in existing_item_cols:
-        cursor.execute(
-            "ALTER TABLE transaction_items ADD COLUMN cost_snapshot REAL NOT NULL DEFAULT 0.0"
-        )
 
     conn.commit()
     conn.close()
@@ -330,9 +355,20 @@ def recalculate_selling_prices(conn=None, product_ids=None, group_id=None, all_p
         conn = get_products_conn()
     cursor = conn.cursor()
 
+    # Check if cost/selling_price columns exist — if not, fall back to price column
+    existing_cols = {r[1] for r in cursor.execute(
+        "PRAGMA table_info(products)"
+    ).fetchall()}
+    has_cost = "cost" in existing_cols and "selling_price" in existing_cols
+    if not has_cost:
+        # Schema not yet migrated — nothing to recalculate
+        if close_conn:
+            conn.close()
+        return
+
     # Get case profit % from business.db
     bconn = get_business_conn()
-    row = bconn.execute(
+    row   = bconn.execute(
         "SELECT case_profit_percent FROM business_info WHERE id=1"
     ).fetchone()
     bconn.close()
@@ -368,7 +404,7 @@ def recalculate_selling_prices(conn=None, product_ids=None, group_id=None, all_p
             grp_row = cursor.execute(
                 "SELECT profit_percent FROM product_groups WHERE id = ?", (grp_id,)
             ).fetchone()
-            profit_pct = grp_row[0] if grp_row else 0.0
+            profit_pct    = grp_row[0] if grp_row else 0.0
             selling_price = round(cost * (1 + profit_pct / 100), 2)
         else:
             selling_price = cost  # standalone no-group: sell at cost
@@ -394,8 +430,8 @@ def recalculate_selling_prices(conn=None, product_ids=None, group_id=None, all_p
             (alias_id,)
         ).fetchall()
         for case_id, case_qty in cases:
-            case_qty = case_qty or 1
-            case_cost = round(single_cost * case_qty, 4)
+            case_qty    = case_qty or 1
+            case_cost   = round(single_cost * case_qty, 4)
             case_selling = round(case_cost * (1 + case_profit_pct / 100), 2)
             cursor.execute(
                 "UPDATE products SET cost = ?, selling_price = ? WHERE id = ?",
@@ -408,13 +444,24 @@ def recalculate_selling_prices(conn=None, product_ids=None, group_id=None, all_p
 
 
 def recalculate_all_cases(case_profit_pct=None):
-    """Recalculate selling_price for ALL case products (called when case_profit_percent changes)."""
-    conn = get_products_conn()
+    """
+    Recalculate selling_price for ALL case products.
+    Called when case_profit_percent changes in manager dashboard.
+    """
+    conn   = get_products_conn()
     cursor = conn.cursor()
+
+    # Check schema
+    existing_cols = {r[1] for r in cursor.execute(
+        "PRAGMA table_info(products)"
+    ).fetchall()}
+    if "cost" not in existing_cols or "selling_price" not in existing_cols:
+        conn.close()
+        return
 
     if case_profit_pct is None:
         bconn = get_business_conn()
-        row = bconn.execute(
+        row   = bconn.execute(
             "SELECT case_profit_percent FROM business_info WHERE id=1"
         ).fetchone()
         bconn.close()
@@ -433,8 +480,8 @@ def recalculate_all_cases(case_profit_pct=None):
         ).fetchone()
         if not single_row:
             continue
-        case_qty = case_qty or 1
-        case_cost = round(single_row[0] * case_qty, 4)
+        case_qty     = case_qty or 1
+        case_cost    = round(single_row[0] * case_qty, 4)
         case_selling = round(case_cost * (1 + case_profit_pct / 100), 2)
         cursor.execute(
             "UPDATE products SET cost = ?, selling_price = ? WHERE id = ?",

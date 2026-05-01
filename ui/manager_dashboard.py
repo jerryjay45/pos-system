@@ -22,7 +22,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QDoubleValidator
 
 from ui.supervisor_dashboard import SupervisorDashboard
-from db import get_users_conn, get_business_conn, get_products_conn, recalculate_selling_prices, recalculate_all_cases
+from db import get_users_conn, get_business_conn, get_products_conn
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -661,6 +661,7 @@ class ManagerDashboard(SupervisorDashboard):
 
         vbox.addWidget(self._build_gct_panel())
         vbox.addWidget(self._build_case_profit_panel())
+        vbox.addWidget(self._build_printer_settings_panel())
         vbox.addWidget(self._build_discount_panel())
         vbox.addWidget(self._build_groups_panel())
         vbox.addStretch()
@@ -736,6 +737,8 @@ class ManagerDashboard(SupervisorDashboard):
             self.gct_feedback.setStyleSheet("color: #f87171; font-size: 11px;")
             self.gct_feedback.setText(str(e))
 
+            self.gct_feedback.setText(str(e))
+
     # ── Case profit panel ─────────────────────────────────────────────
 
     def _build_case_profit_panel(self):
@@ -748,9 +751,8 @@ class ManagerDashboard(SupervisorDashboard):
         title = QLabel("CASE PROFIT %")
         title.setStyleSheet(_SECTION_LBL)
         layout.addWidget(title)
-
-        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine); sep.setStyleSheet(_DIVIDER)
-        layout.addWidget(sep)
+        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(_DIVIDER); layout.addWidget(sep)
 
         desc = QLabel(
             "Profit markup applied to all case products.\n"
@@ -776,8 +778,7 @@ class ManagerDashboard(SupervisorDashboard):
         self.case_profit_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
 
         save_btn = QPushButton("Save")
-        save_btn.setFixedHeight(34)
-        save_btn.setFixedWidth(70)
+        save_btn.setFixedHeight(34); save_btn.setFixedWidth(70)
         save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         save_btn.setStyleSheet(_BTN_BLUE)
         save_btn.clicked.connect(self._case_profit_save)
@@ -787,14 +788,13 @@ class ManagerDashboard(SupervisorDashboard):
         row.addWidget(save_btn)
         layout.addLayout(row)
         layout.addWidget(self.case_profit_feedback)
-
         self._case_profit_load()
         return panel
 
     def _case_profit_load(self):
         try:
             conn = get_business_conn()
-            row = conn.execute(
+            row  = conn.execute(
                 "SELECT case_profit_percent FROM business_info WHERE id=1"
             ).fetchone()
             conn.close()
@@ -806,19 +806,201 @@ class ManagerDashboard(SupervisorDashboard):
     def _case_profit_save(self):
         try:
             new_pct = self.case_profit_spin.value()
-            conn = get_business_conn()
+            conn    = get_business_conn()
             conn.execute(
                 "UPDATE business_info SET case_profit_percent=? WHERE id=1", (new_pct,)
             )
-            conn.commit()
-            conn.close()
-            # Recalculate all case selling prices with the new %
-            recalculate_all_cases(case_profit_pct=new_pct)
+            conn.commit(); conn.close()
             self.case_profit_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
-            self.case_profit_feedback.setText("✓ Case profit saved. All case prices updated.")
+            self.case_profit_feedback.setText("✓ Case profit saved.")
         except Exception as e:
             self.case_profit_feedback.setStyleSheet("color: #f87171; font-size: 11px;")
             self.case_profit_feedback.setText(str(e))
+
+    # ── Printer settings panel ────────────────────────────────────────
+
+    def _build_printer_settings_panel(self):
+        from PyQt6.QtWidgets import QComboBox, QGroupBox
+        panel = QFrame()
+        panel.setStyleSheet("background: #0d1117; border-radius: 8px;")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(10)
+
+        title = QLabel("PRINTER SETTINGS")
+        title.setStyleSheet(_SECTION_LBL)
+        layout.addWidget(title)
+        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(_DIVIDER); layout.addWidget(sep)
+
+        def row_layout(label_text, widget):
+            r = QHBoxLayout()
+            lbl = QLabel(label_text)
+            lbl.setFixedWidth(160)
+            lbl.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+            r.addWidget(lbl)
+            r.addWidget(widget, stretch=1)
+            return r
+
+        # Default printer type
+        self.ps_type_combo = QComboBox()
+        self.ps_type_combo.setFixedHeight(34)
+        self.ps_type_combo.setStyleSheet(_INPUT)
+        self.ps_type_combo.addItems(["Auto (thermal first)", "Thermal / Impact", "Normal Printer"])
+        self.ps_type_combo.currentIndexChanged.connect(self._ps_on_type_changed)
+        layout.addLayout(row_layout("Default Printer:", self.ps_type_combo))
+
+        # Thermal connection type
+        self.ps_conn_combo = QComboBox()
+        self.ps_conn_combo.setFixedHeight(34)
+        self.ps_conn_combo.setStyleSheet(_INPUT)
+        self.ps_conn_combo.addItems(["USB", "Serial (COM)", "Parallel (LPT)", "Network (IP)"])
+        self.ps_conn_combo.currentIndexChanged.connect(self._ps_on_conn_changed)
+        layout.addLayout(row_layout("Thermal Connection:", self.ps_conn_combo))
+
+        # Port / address field (shown for serial/parallel/network)
+        self.ps_port_field = QLineEdit()
+        self.ps_port_field.setFixedHeight(34)
+        self.ps_port_field.setStyleSheet(_INPUT)
+        self.ps_port_field.setPlaceholderText("e.g. COM3 / LPT1 / 192.168.1.100")
+        self._ps_port_row = row_layout("Port / Address:", self.ps_port_field)
+        layout.addLayout(self._ps_port_row)
+
+        # Normal printer name
+        self.ps_normal_combo = QComboBox()
+        self.ps_normal_combo.setFixedHeight(34)
+        self.ps_normal_combo.setStyleSheet(_INPUT)
+        self._ps_populate_normal_printers()
+        layout.addLayout(row_layout("Normal Printer:", self.ps_normal_combo))
+
+        # Paper size
+        self.ps_paper_combo = QComboBox()
+        self.ps_paper_combo.setFixedHeight(34)
+        self.ps_paper_combo.setStyleSheet(_INPUT)
+        self.ps_paper_combo.addItems(["A4", "Letter", "Legal"])
+        layout.addLayout(row_layout("Paper Size:", self.ps_paper_combo))
+
+        # Receipt layout
+        self.ps_layout_combo = QComboBox()
+        self.ps_layout_combo.setFixedHeight(34)
+        self.ps_layout_combo.setStyleSheet(_INPUT)
+        self.ps_layout_combo.addItems(["3-Column (Product | GCT | Total)", "Simple (Product | Total)"])
+        layout.addLayout(row_layout("Receipt Layout:", self.ps_layout_combo))
+
+        # Feedback + Save
+        self.ps_feedback = QLabel("")
+        self.ps_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+
+        save_btn = QPushButton("Save Printer Settings")
+        save_btn.setFixedHeight(34)
+        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_btn.setStyleSheet(_BTN_BLUE)
+        save_btn.clicked.connect(self._ps_save)
+
+        layout.addWidget(self.ps_feedback)
+        layout.addWidget(save_btn)
+
+        self._ps_load()
+        return panel
+
+    def _ps_populate_normal_printers(self):
+        """Populate the normal printer combo with system printers."""
+        try:
+            from printing.normal_printer import get_available_printers, get_default_printer
+            printers = get_available_printers()
+            self.ps_normal_combo.clear()
+            self.ps_normal_combo.addItem("— System Default —", "")
+            for name in printers:
+                self.ps_normal_combo.addItem(name, name)
+        except Exception:
+            self.ps_normal_combo.addItem("— System Default —", "")
+
+    def _ps_on_type_changed(self, idx):
+        """Show/hide thermal fields based on printer type selection."""
+        show_thermal = idx in (0, 1)  # Auto or Thermal
+        self.ps_conn_combo.setEnabled(show_thermal)
+        self.ps_port_field.setEnabled(show_thermal)
+
+    def _ps_on_conn_changed(self, idx):
+        """Show port field only when serial/parallel/network is selected."""
+        # idx 0 = USB (no port needed), 1=Serial, 2=Parallel, 3=Network
+        self.ps_port_field.setVisible(idx > 0)
+
+    def _ps_load(self):
+        """Load printer settings from business.db."""
+        try:
+            conn = get_business_conn()
+            row  = conn.execute("""
+                SELECT printer_type, thermal_connection, thermal_port,
+                       paper_size, normal_printer_name, receipt_layout
+                FROM business_info WHERE id=1
+            """).fetchone()
+            conn.close()
+            if not row:
+                return
+            ptype, conn_type, port, paper, normal_name, layout = row
+
+            type_map = {"auto": 0, "thermal": 1, "normal": 2}
+            self.ps_type_combo.setCurrentIndex(type_map.get(ptype or "auto", 0))
+
+            conn_map = {"usb": 0, "serial": 1, "parallel": 2, "network": 3}
+            self.ps_conn_combo.setCurrentIndex(conn_map.get(conn_type or "usb", 0))
+
+            self.ps_port_field.setText(port or "")
+
+            paper_map = {"A4": 0, "Letter": 1, "Legal": 2}
+            self.ps_paper_combo.setCurrentIndex(paper_map.get(paper or "A4", 0))
+
+            layout_map = {"gct_column": 0, "simple": 1}
+            self.ps_layout_combo.setCurrentIndex(layout_map.get(layout or "gct_column", 0))
+
+            # Set normal printer
+            for i in range(self.ps_normal_combo.count()):
+                if self.ps_normal_combo.itemData(i) == (normal_name or ""):
+                    self.ps_normal_combo.setCurrentIndex(i)
+                    break
+
+            self._ps_on_type_changed(self.ps_type_combo.currentIndex())
+            self._ps_on_conn_changed(self.ps_conn_combo.currentIndex())
+        except Exception as e:
+            print(f"Printer settings load error: {e}")
+
+    def _ps_save(self):
+        """Save printer settings to business.db."""
+        try:
+            type_vals  = ["auto", "thermal", "normal"]
+            conn_vals  = ["usb", "serial", "parallel", "network"]
+            paper_vals = ["A4", "Letter", "Legal"]
+            layout_vals = ["gct_column", "simple"]
+
+            ptype     = type_vals[self.ps_type_combo.currentIndex()]
+            conn_type = conn_vals[self.ps_conn_combo.currentIndex()]
+            port      = self.ps_port_field.text().strip()
+            paper     = paper_vals[self.ps_paper_combo.currentIndex()]
+            normal    = self.ps_normal_combo.currentData() or ""
+            layout    = layout_vals[self.ps_layout_combo.currentIndex()]
+
+            conn = get_business_conn()
+            conn.execute("""
+                UPDATE business_info
+                SET printer_type        = ?,
+                    thermal_connection  = ?,
+                    thermal_port        = ?,
+                    paper_size          = ?,
+                    normal_printer_name = ?,
+                    receipt_layout      = ?
+                WHERE id = 1
+            """, (ptype, conn_type, port, paper, normal, layout))
+            conn.commit()
+            conn.close()
+
+            self.ps_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
+            self.ps_feedback.setText("✓ Printer settings saved.")
+        except Exception as e:
+            self.ps_feedback.setStyleSheet("color: #f87171; font-size: 11px;")
+            self.ps_feedback.setText(str(e))
+
+    # ── Discount levels panel ─────────────────────────────────────────
 
     def _build_discount_panel(self):
         panel = QFrame()
@@ -1069,7 +1251,6 @@ class ManagerDashboard(SupervisorDashboard):
     def _grp_save(self):
         try:
             conn = get_products_conn()
-            changed_group_ids = []
             for row in range(self.grp_table.rowCount()):
                 name_w   = self.grp_table.cellWidget(row, 0)
                 profit_w = self.grp_table.cellWidget(row, 1)
@@ -1088,16 +1269,10 @@ class ManagerDashboard(SupervisorDashboard):
                         "UPDATE product_groups SET group_name=?, profit_percent=? WHERE id=?",
                         (name, profit, row_id)
                     )
-                    changed_group_ids.append(row_id)
             conn.commit()
-
-            # Recalculate selling prices for changed groups and cascade to linked cases
-            for gid in changed_group_ids:
-                recalculate_selling_prices(conn=conn, group_id=gid)
-
             conn.close()
             self.grp_feedback.setStyleSheet("color: #3dd68c; font-size: 11px;")
-            self.grp_feedback.setText("✓ Groups saved. Selling prices updated.")
+            self.grp_feedback.setText("✓ Groups saved.")
             self._grp_load()
         except Exception as e:
             self.grp_feedback.setStyleSheet("color: #f87171; font-size: 11px;")

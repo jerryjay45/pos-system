@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QStringListModel
 from PyQt6.QtGui import QColor, QDoubleValidator, QIntValidator
 from ui.base_window import BaseWindow
-from db import get_products_conn, get_users_conn, get_transactions_conn, get_business_conn, recalculate_selling_prices
+from db import get_products_conn, get_users_conn, get_transactions_conn, get_business_conn
 
 
 class SupervisorDashboard(BaseWindow):
@@ -290,8 +290,7 @@ class SupervisorDashboard(BaseWindow):
         self.rpt_print_btn.setStyleSheet(_btn_outline)
         self.rpt_print_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.rpt_print_btn.setEnabled(False)
-
-        session_bar.addWidget(self.rpt_session_header)
+        self.rpt_print_btn.clicked.connect(self._rpt_print)
         session_bar.addStretch()
         session_bar.addWidget(self.rpt_search_bar)
         session_bar.addWidget(self.rpt_refresh_btn)
@@ -537,6 +536,22 @@ class SupervisorDashboard(BaseWindow):
         self.rpt_print_btn.setEnabled(False)
 
     # ── Reports: actions ─────────────────────────────────────────────
+
+    def _rpt_print(self):
+        """Print session summary for the selected cashing session."""
+        session_id = getattr(self, "_rpt_selected_session_id", None)
+        if not session_id:
+            return
+        try:
+            from printing.print_manager import print_session
+            ok, err = print_session(session_id, parent=self)
+            if not ok and err != "Cancelled":
+                QMessageBox.warning(
+                    self, "Print Failed",
+                    f"Could not print session summary:\n{err}"
+                )
+        except Exception as e:
+            QMessageBox.critical(self, "Print Error", str(e))
 
     def _rpt_refresh(self):
         """Reload cashier list; if a cashier is selected reload their sessions too."""
@@ -926,17 +941,22 @@ class SupervisorDashboard(BaseWindow):
         self.tx_reprint_btn.setEnabled(True)
 
     def _tx_reprint(self):
-        """Reprint the selected receipt. Wired to printer when receipt printing is implemented."""
-        row = self.tx_table.currentRow()
+        """Reprint the selected receipt — shows printer selection dialog."""
+        row  = self.tx_table.currentRow()
         item = self.tx_table.item(row, 0)
         if not item:
             return
         tx_id = item.data(Qt.ItemDataRole.UserRole)
-        QMessageBox.information(
-            self, "Reprint Receipt",
-            f"Reprint for Receipt #{tx_id} will be sent to the printer.\n"
-            "(Receipt printing not yet implemented — wire to printer module here.)"
-        )
+        try:
+            from printing.print_manager import reprint_receipt
+            ok, err = reprint_receipt(tx_id, parent=self)
+            if not ok and err != "Cancelled":
+                QMessageBox.warning(
+                    self, "Print Failed",
+                    f"Could not print receipt #{tx_id}:\n{err}"
+                )
+        except Exception as e:
+            QMessageBox.critical(self, "Print Error", str(e))
 
     # ================================================================
     # VOID / REFUND TAB — stub
@@ -1445,6 +1465,18 @@ class SupervisorDashboard(BaseWindow):
             self.vr_status_banner.setVisible(True)
             self._vr_load(status_filter="completed" if self.vr_status_filter.currentIndex() == 0 else "")
 
+            # Print void receipt
+            try:
+                from printing.print_manager import print_void
+                print_void(
+                    self._vr_selected_tx_id,
+                    reason=reason,
+                    supervisor_name=self.full_name,
+                    parent=self
+                )
+            except Exception as print_err:
+                print(f"[Print] Void receipt print failed: {print_err}")
+
         except Exception as e:
             QMessageBox.critical(self, "Void Failed", str(e))
 
@@ -1528,6 +1560,29 @@ class SupervisorDashboard(BaseWindow):
             self.vr_status_banner.setStyleSheet("color: #fcd34d; font-size: 12px; font-weight: 600;")
             self.vr_status_banner.setVisible(True)
             self._vr_load(status_filter="completed" if self.vr_status_filter.currentIndex() == 0 else "")
+
+            # Print refund receipt
+            try:
+                from printing.print_manager import print_refund
+                refund_items_fmt = [
+                    {
+                        "name":       it[0],
+                        "qty":        it[2],
+                        "unit_price": it[3],
+                        "line_total": it[5],
+                    }
+                    for it in refund_items
+                ]
+                print_refund(
+                    self._vr_selected_tx_id,
+                    refund_items=refund_items_fmt,
+                    refund_total=refund_total,
+                    reason=reason,
+                    supervisor_name=self.full_name,
+                    parent=self
+                )
+            except Exception as print_err:
+                print(f"[Print] Refund receipt print failed: {print_err}")
 
         except Exception as e:
             QMessageBox.critical(self, "Refund Failed", str(e))
@@ -1652,23 +1707,6 @@ class SupervisorDashboard(BaseWindow):
         self.f_cost     = self._form_input("Cost",     "0.00")
         self.f_cost.setValidator(QDoubleValidator(0, 999999, 2))
 
-        # Selling price — read-only, auto-computed from cost + group profit
-        self.f_selling_price = self._form_input("Selling Price", "")
-        self.f_selling_price.setReadOnly(True)
-        self.f_selling_price.setStyleSheet("""
-            QLineEdit {
-                background-color: #0d1a10; color: #3fb950;
-                border: 1px solid #1a3a20; border-radius: 6px;
-                padding: 0 10px; font-size: 13px;
-            }
-        """)
-        # Selling price hint label
-        self.selling_price_hint = QLabel("")
-        self.selling_price_hint.setStyleSheet("color: #484f58; font-size: 10px; font-style: italic;")
-
-        # Connect cost + group changes to selling price recalc
-        self.f_cost.textChanged.connect(self._calc_selling_price)
-
         # Setup alias autocomplete
         self._setup_alias_completer()
 
@@ -1685,7 +1723,6 @@ class SupervisorDashboard(BaseWindow):
         self.f_group.setEditable(True)
         self.f_group.setStyleSheet(self._combo_style())
         self._setup_group_completer()
-        self.f_group.currentTextChanged.connect(self._calc_selling_price)
 
         # Discount level dropdown
         disc_lbl = QLabel("Discount Level")
@@ -1789,8 +1826,6 @@ class SupervisorDashboard(BaseWindow):
         layout.addWidget(self._field_wrap("Alias",          self.f_alias))
         layout.addWidget(self.alias_hint)
         layout.addWidget(self._field_wrap("Cost",           self.f_cost))
-        layout.addWidget(self._field_wrap("Selling Price",  self.f_selling_price))
-        layout.addWidget(self.selling_price_hint)
         layout.addWidget(grp_lbl)
         layout.addWidget(self.f_group)
         layout.addWidget(disc_lbl)
@@ -1924,7 +1959,7 @@ class SupervisorDashboard(BaseWindow):
     def _on_case_toggled(self, state):
         is_case = state == Qt.CheckState.Checked.value
         self.case_box.setVisible(is_case)
-        # Cost and group are disabled for cases — case cost derives from single via alias
+        # Price field disabled for cases — auto-calculated
         self.f_cost.setReadOnly(is_case)
         self.f_cost.setStyleSheet("""
             QLineEdit {
@@ -1933,90 +1968,34 @@ class SupervisorDashboard(BaseWindow):
                 padding: 0 10px; font-size: 13px;
             }
         """ % (("#0d1117", "#484f58") if is_case else ("#161b22", "#ffffff")))
-        self.f_group.setEnabled(not is_case)
         if is_case:
-            self.f_selling_price.clear()
-            self.selling_price_hint.setText("Case price auto-calculated below")
             self._calc_case_price()
-        else:
-            self.selling_price_hint.setText("")
-            self._calc_selling_price()
 
     def _on_alias_changed(self):
         alias = self.f_alias.text().strip()
         if not alias:
             self.alias_hint.setVisible(False)
             return
-        is_case = self.t_case.isChecked()
-        single = self._get_single_by_alias(alias)
+        # Look up single item cost by alias
+        single = self._get_single_price_by_alias(alias)
         if single:
-            pid, name, cost, selling_price, group_id, group_name = single
-            if is_case:
-                self.alias_hint.setText(f"↳ Single found: {name}  (cost ${cost:.2f})")
-                self.alias_hint.setVisible(True)
-                self._calc_case_price()
-            else:
-                # Auto-inherit group from alias siblings
-                if group_id and self.f_group.currentData() != group_id:
-                    idx = self.f_group.findData(group_id)
-                    if idx >= 0:
-                        self.f_group.setCurrentIndex(idx)
-                    else:
-                        self.f_group.setCurrentText(group_name or "")
-                    self.alias_hint.setText(f"↳ Group inherited from alias: {group_name}")
-                else:
-                    self.alias_hint.setText(f"↳ Alias found: {name}")
-                self.alias_hint.setVisible(True)
-                self._calc_selling_price()
+            pid, name, cost, selling_price = single
+            self.alias_hint.setText(f"↳ Single found: {name}  (cost ${cost:.2f}  sell ${selling_price:.2f})")
+            self.alias_hint.setVisible(True)
+            self._calc_case_price()
         else:
             self.alias_hint.setText("↳ No single item found for this alias")
             self.alias_hint.setVisible(True)
 
-    def _calc_selling_price(self, *_):
-        """Auto-calculate selling price for single products: cost × (1 + group_profit%)."""
-        if self.t_case.isChecked():
-            return
-        try:
-            cost = float(self.f_cost.text() or "0")
-        except ValueError:
-            self.f_selling_price.clear()
-            self.selling_price_hint.setText("")
-            return
-
-        group_name = self.f_group.currentText().strip()
-        if not group_name or group_name == "— None —":
-            # No group — sell at cost
-            self.f_selling_price.setText(f"${cost:.2f}")
-            self.selling_price_hint.setText("= cost (no group markup)")
-            return
-
-        # Look up group profit %
-        conn = get_products_conn()
-        row = conn.execute(
-            "SELECT profit_percent FROM product_groups WHERE group_name = ?", (group_name,)
-        ).fetchone()
-        conn.close()
-
-        if row:
-            profit_pct = row[0]
-            selling = round(cost * (1 + profit_pct / 100), 2)
-            self.f_selling_price.setText(f"${selling:.2f}")
-            self.selling_price_hint.setText(
-                f"= ${cost:.2f} × (1 + {profit_pct:.1f}%) = ${selling:.2f}"
-            )
-        else:
-            self.f_selling_price.setText(f"${cost:.2f}")
-            self.selling_price_hint.setText("= cost (group not found)")
-
     def _calc_case_price(self):
-        """Auto-calculate case selling price: single_cost × qty × (1 + case_profit%)."""
+        """Auto-calculate case price from single cost × qty × (1 + profit %)."""
         if not self.t_case.isChecked():
             return
-        alias = self.f_alias.text().strip()
-        single = self._get_single_by_alias(alias)
+        alias  = self.f_alias.text().strip()
+        single = self._get_single_price_by_alias(alias)
         if not single:
             return
-        _, name, single_cost, _, _, _ = single
+        _, name, single_cost, _ = single
         try:
             qty    = int(self.f_case_qty.text()    or "0")
             profit = float(self.f_case_profit.text() or "0")
@@ -2024,25 +2003,24 @@ class SupervisorDashboard(BaseWindow):
             return
         if qty <= 0:
             return
-        case_cost = round(single_cost * qty, 4)
-        selling   = round(case_cost * (1 + profit / 100), 2)
-        self.f_case_price.setText(f"${selling:.2f}")
+        case_cost     = round(single_cost * qty, 4)
+        selling_price = round(case_cost * (1 + profit / 100), 2)
+        self.f_case_price.setText(f"${selling_price:.2f}")
         self.f_cost.setText(str(case_cost))
         self.case_formula.setText(
-            f"= (${single_cost:.2f} cost × {qty}) × (1 + {profit:.0f}%) = ${selling:.2f}"
+            f"= (${single_cost:.2f} cost × {qty}) × (1 + {profit:.0f}%) = ${selling_price:.2f}"
         )
 
-    def _get_single_by_alias(self, alias):
-        """Return (id, name, cost, selling_price, group_id, group_name) of single item with this alias."""
+    def _get_single_price_by_alias(self, alias):
+        """Return (id, name, price) of the single item with this alias."""
         if not alias:
             return None
         conn   = get_products_conn()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT p.id, p.name, p.cost, p.selling_price, p.group_id, pg.group_name
+            SELECT p.id, p.name, p.cost, p.selling_price
             FROM products p
             INNER JOIN aliases a ON a.id = p.alias_id
-            LEFT JOIN product_groups pg ON pg.id = p.group_id
             WHERE a.alias_name = ? AND p.is_case = 0
             LIMIT 1
         """, (alias,))
@@ -2197,8 +2175,6 @@ class SupervisorDashboard(BaseWindow):
         self.f_name.clear()
         self.f_alias.clear()
         self.f_cost.clear()
-        self.f_selling_price.clear()
-        self.selling_price_hint.setText("")
         self.f_case_qty.clear()
         self.f_case_profit.clear()
         self.f_case_price.clear()
@@ -2236,7 +2212,6 @@ class SupervisorDashboard(BaseWindow):
         self.f_name.setText(name     or "")
         self.f_alias.setText(alias   or "")
         self.f_cost.setText(str(cost))
-        self.f_selling_price.setText(f"${selling_price:.2f}")
         self.t_gct.setChecked(bool(gct))
         self.t_case.setChecked(bool(is_case))
 
@@ -2280,8 +2255,7 @@ class SupervisorDashboard(BaseWindow):
             except ValueError:
                 case_qty = 0
 
-        # Cases cannot have a group
-        group_name = "" if is_case else self.f_group.currentText().strip()
+        group_name = self.f_group.currentText().strip()
         disc_id    = self.f_discount.currentData()
 
         try:
@@ -2297,34 +2271,34 @@ class SupervisorDashboard(BaseWindow):
                     "SELECT id FROM aliases WHERE alias_name = ?", (alias,))
                 alias_id = cursor.fetchone()[0]
 
-            # Get or create group (singles only)
+            # Get or create group (not for cases)
             group_id = None
-            if group_name and group_name != "— None —":
+            if not is_case and group_name and group_name != "— None —":
                 cursor.execute(
                     "INSERT OR IGNORE INTO product_groups (group_name) VALUES (?)", (group_name,))
                 cursor.execute(
                     "SELECT id, profit_percent FROM product_groups WHERE group_name = ?", (group_name,))
-                grp_row = cursor.fetchone()
+                grp_row  = cursor.fetchone()
                 group_id = grp_row[0]
 
-            # Compute selling_price for singles
+            # Compute selling_price
             if not is_case:
                 if group_id:
                     cursor.execute(
                         "SELECT profit_percent FROM product_groups WHERE id = ?", (group_id,))
-                    pct_row = cursor.fetchone()
+                    pct_row    = cursor.fetchone()
                     profit_pct = pct_row[0] if pct_row else 0.0
                     selling_price = round(cost * (1 + profit_pct / 100), 2)
                 else:
                     selling_price = cost  # no group — sell at cost
             else:
-                # Case: cost derived from single; selling_price from case_profit %
-                bconn = get_business_conn()
-                case_pct = bconn.execute(
+                # Case: selling_price from case_profit %
+                bconn   = get_business_conn()
+                cpt_row = bconn.execute(
                     "SELECT case_profit_percent FROM business_info WHERE id=1"
                 ).fetchone()
                 bconn.close()
-                case_pct = case_pct[0] if case_pct else 14.0
+                case_pct      = cpt_row[0] if cpt_row else 14.0
                 selling_price = round(cost * (1 + case_pct / 100), 2)
 
             if self.editing_product_id:
@@ -2351,14 +2325,6 @@ class SupervisorDashboard(BaseWindow):
                       disc_id, gct, is_case, case_qty))
 
             conn.commit()
-
-            # Cascade: if this is a single with an alias, recalculate linked cases
-            saved_id = self.editing_product_id or cursor.lastrowid
-            if not is_case and alias_id:
-                recalculate_selling_prices(conn=conn, product_ids=[saved_id])
-            else:
-                conn.commit()
-
             conn.close()
 
             QMessageBox.information(self, "Saved",
@@ -2370,8 +2336,6 @@ class SupervisorDashboard(BaseWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save product:\n{e}")
-
-
 
     def _delete_product(self, product_id):
         """Delete a product after confirmation."""

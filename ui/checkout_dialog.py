@@ -301,24 +301,32 @@ class CheckoutDialog(QDialog):
     def _save_transaction(self, cash_tendered, change):
         """Save the completed transaction and all its items to the database."""
         try:
-            conn = get_transactions_conn()
+            conn   = get_transactions_conn()
             cursor = conn.cursor()
-            now  = datetime.now()
-            date = now.strftime("%Y-%m-%d")
-            time = now.strftime("%H:%M:%S")
+            now    = datetime.now()
+            date   = now.strftime("%Y-%m-%d")
+            time_  = now.strftime("%H:%M:%S")
 
             # Get or create session for this cashier
             session_id = self._get_or_create_session(cursor)
 
-            # Insert transaction with cashier name snapshot
+            discount_total = sum(
+                item.get("discount_applied", 0.0) * item["qty"]
+                for item in self.cart
+            )
+
+            # Insert transaction with full payment snapshot
             cursor.execute("""
                 INSERT INTO transactions
                     (session_id, cashier_id, cashier_name, date, time,
-                     subtotal, tax_amount, total, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed')
+                     subtotal, tax_amount, discount_total, total,
+                     cash_tendered, change_given, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed')
             """, (
                 session_id, self.user_id, self.cashier_name,
-                date, time, self.subtotal, self.gct_total, self.total
+                date, time_, self.subtotal, self.gct_total,
+                discount_total, self.total,
+                cash_tendered, change
             ))
             transaction_id = cursor.lastrowid
 
@@ -328,15 +336,14 @@ class CheckoutDialog(QDialog):
                     INSERT INTO transaction_items
                         (transaction_id, product_id,
                          product_name_snapshot, barcode_snapshot,
-                         cost_snapshot, unit_price_snapshot, quantity,
+                         unit_price_snapshot, quantity,
                          gct_applicable, discount_applied, line_total)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     transaction_id,
                     item.get("id"),
                     item["name"],
                     item.get("barcode", ""),
-                    item.get("cost", 0.0),
                     item["price"],
                     item["qty"],
                     item.get("gct_applicable", 1),
@@ -352,8 +359,6 @@ class CheckoutDialog(QDialog):
             """, (self.total, session_id))
 
             # Update this cashier's active cashing_session totals
-            discount_total = sum(item.get("discount_applied", 0.0) * item["qty"]
-                                 for item in self.cart)
             cursor.execute("""
                 UPDATE cashing_sessions
                 SET total_sales       = total_sales       + ?,
@@ -365,6 +370,20 @@ class CheckoutDialog(QDialog):
 
             conn.commit()
             conn.close()
+
+            # ── Auto-print receipt ────────────────────────────────────
+            try:
+                from printing.print_manager import print_receipt
+                print_receipt(
+                    transaction_id,
+                    cash_tendered=cash_tendered,
+                    change=change,
+                    parent=self
+                )
+            except Exception as print_err:
+                # Print failure must never block the sale
+                print(f"[Print] Receipt print failed: {print_err}")
+
             return True
 
         except Exception as e:
