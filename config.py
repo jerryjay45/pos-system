@@ -4,6 +4,7 @@ Central settings for the POS system.
 Change your settings here — no need to dig through other files.
 """
 
+import sys
 from pathlib import Path
 
 # ----------------------------------------------------------------
@@ -17,9 +18,19 @@ APP_VERSION = "1.0.0"
 # DATABASE — LOCAL (SQLite) — 4 separate databases
 # ----------------------------------------------------------------
 
-# Store all databases in a "storedata" folder inside the program directory
-BASE_DIR = Path(__file__).parent.resolve()
-DATA_DIR  = BASE_DIR / "storedata"
+# PyInstaller freezes the app into a single exe or folder.
+# When frozen, __file__ points inside the temp extraction dir —
+# we want storedata/ to sit next to the .exe, not inside it.
+# sys.frozen is set by PyInstaller at runtime.
+if getattr(sys, "frozen", False):
+    # Running as a PyInstaller bundle
+    # sys.executable = path to the .exe file
+    BASE_DIR = Path(sys.executable).parent.resolve()
+else:
+    # Running from source
+    BASE_DIR = Path(__file__).parent.resolve()
+
+DATA_DIR = BASE_DIR / "storedata"
 DATA_DIR.mkdir(exist_ok=True)
 
 # Each module has its own database file

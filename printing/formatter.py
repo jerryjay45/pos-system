@@ -11,8 +11,8 @@ Two receipt layouts:
 """
 
 # ── Column widths ─────────────────────────────────────────────────────────────
-THERMAL_WIDTH   = 40
-NORMAL_WIDTH    = 60    # wider for A4 normal printer
+THERMAL_WIDTH   = 48
+NORMAL_WIDTH    = 72    # wider for A4 normal printer
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
