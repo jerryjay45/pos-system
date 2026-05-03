@@ -202,8 +202,8 @@ exe = EXE(
     # Windows-specific
     disable_windowed_traceback=False,
 
-    # Icon — create a .ico file and put it next to this spec, then uncomment:
-    # icon="merchant_pos.ico",
+    # Icon
+    icon=str(ROOT / "assets" / "merchant_pos.ico"),
 )
 
 # ── COLLECT (one-folder output) ───────────────────────────────────────────────

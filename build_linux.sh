@@ -76,9 +76,34 @@ info "Setting up storedata folder..."
 mkdir -p dist/MerchantPOS/storedata
 ok "storedata/ created"
 
-# Copy utility scripts
-[ -f import_stock_dbf.py ] && cp import_stock_dbf.py dist/MerchantPOS/
-[ -f README.md ]           && cp README.md           dist/MerchantPOS/
+# Copy assets (icon)
+mkdir -p dist/MerchantPOS/assets
+[ -f assets/merchant_pos_256.png ] && cp assets/merchant_pos_256.png dist/MerchantPOS/assets/
+[ -f assets/merchant_pos_512.png ] && cp assets/merchant_pos_512.png dist/MerchantPOS/assets/
+[ -f assets/merchant_pos.ico ]     && cp assets/merchant_pos.ico     dist/MerchantPOS/assets/
+ok "Assets copied"
+
+# ── .desktop entry (Linux application launcher) ────────────────────────────
+DESKTOP_FILE="dist/MerchantPOS/merchant_pos.desktop"
+INSTALL_DIR="$(pwd)/dist/MerchantPOS"
+cat > "$DESKTOP_FILE" << DESKTOP
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Merchant Retail POS
+Comment=Point of Sale System
+Exec=${INSTALL_DIR}/MerchantPOS
+Icon=${INSTALL_DIR}/assets/merchant_pos_256.png
+Terminal=false
+Categories=Office;Finance;
+Keywords=pos;retail;sales;cashier;
+StartupWMClass=MerchantPOS
+DESKTOP
+chmod +x "$DESKTOP_FILE"
+ok ".desktop entry created → $DESKTOP_FILE"
+info "To install as a system app:"
+echo "  cp $DESKTOP_FILE ~/.local/share/applications/"
+echo "  cp assets/merchant_pos_256.png ~/.local/share/icons/"
 
 # Make the binary executable
 chmod +x dist/MerchantPOS/MerchantPOS
