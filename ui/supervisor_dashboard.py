@@ -1636,6 +1636,23 @@ class SupervisorDashboard(BaseWindow):
         add_btn.clicked.connect(self._new_product_form)
 
         toolbar.addWidget(self.product_search, stretch=1)
+
+        refresh_btn = QPushButton("↻")
+        refresh_btn.setFixedSize(36, 36)
+        refresh_btn.setToolTip("Refresh product list")
+        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #172840; color: #94aac4;
+                border: 1.5px solid #2d5282; border-radius: 18px;
+                font-size: 16px; font-weight: 700;
+            }
+            QPushButton:hover { background-color: #1e3a5f; color: #f59e0b; border-color: #f59e0b; }
+            QPushButton:pressed { background-color: #f59e0b22; }
+        """)
+        refresh_btn.clicked.connect(lambda: self._load_products(self.product_search.text().strip()))
+
+        toolbar.addWidget(refresh_btn)
         toolbar.addWidget(add_btn)
 
         # Product table
@@ -2731,6 +2748,23 @@ class SupervisorDashboard(BaseWindow):
         self.label_sel_count.setStyleSheet("color: #64748b; font-size: 11px;")
 
         toolbar.addWidget(self.label_search, stretch=1)
+
+        refresh_btn = QPushButton("↻")
+        refresh_btn.setFixedSize(36, 36)
+        refresh_btn.setToolTip("Refresh product list")
+        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        refresh_btn.setStyleSheet("""
+            QPushButton {
+                background: #0d1e2e; color: #94aac4;
+                border: 1.5px solid #2d5282; border-radius: 18px;
+                font-size: 16px; font-weight: 700;
+            }
+            QPushButton:hover { background: #1e3a5f; color: #f59e0b; border-color: #f59e0b; }
+            QPushButton:pressed { background: #f59e0b22; }
+        """)
+        refresh_btn.clicked.connect(self._label_load_products)
+
+        toolbar.addWidget(refresh_btn)
         toolbar.addWidget(sel_all_btn)
         toolbar.addWidget(clr_btn)
         toolbar.addWidget(self.label_sel_count)

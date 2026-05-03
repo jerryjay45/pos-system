@@ -1,2 +1,2 @@
-make a build script for window on linux system (arch, fedora, debian)
-make import_stock_dbf executable separately
+- Make first time run setup
+- Make import_stock_dbf have a gui for selecting the dbf file

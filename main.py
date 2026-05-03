@@ -13,38 +13,42 @@ from PyQt6.QtWidgets import QApplication
 from config import APP_NAME, APP_VERSION
 from db import create_tables
 
+
 def main():
     # ----------------------------------------------------------------
     # Step 1 — Start the PyQt6 application
-    # sys.argv passes any command line arguments to Qt (required)
     # ----------------------------------------------------------------
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(APP_VERSION)
 
     # ----------------------------------------------------------------
-    # Step 2 — Apply theme (dark by default)
+    # Step 2 — Apply theme (dark only)
     # ----------------------------------------------------------------
     from ui.theme import ThemeManager
     ThemeManager.instance().apply(app)
 
     # ----------------------------------------------------------------
-    # Step 3 — Make sure the database and all tables are ready
-    # Safe to run every time — won't wipe existing data
+    # Step 3 — Initialise databases (safe to run every time)
     # ----------------------------------------------------------------
     create_tables()
 
     # ----------------------------------------------------------------
-    # Step 4 — Show the login window
-    # Imported here to avoid circular imports at the top of the file
+    # Step 4 — First-run check
+    # If no users exist show the setup wizard; otherwise show login
     # ----------------------------------------------------------------
+    from ui.setup_wizard import is_first_run, SetupWizard
     from ui.login_window import LoginWindow
-    login = LoginWindow(app)
-    login.show()
+
+    if is_first_run():
+        window = SetupWizard(app)
+    else:
+        window = LoginWindow(app)
+
+    window.show()
 
     # ----------------------------------------------------------------
-    # Step 5 — Keep the app running until the window is closed
-    # sys.exit ensures a clean exit code when the app closes
+    # Step 5 — Run the event loop
     # ----------------------------------------------------------------
     sys.exit(app.exec())
 

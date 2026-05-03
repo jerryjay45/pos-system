@@ -17,9 +17,10 @@ from PyQt6.QtWidgets import (
     QHeaderView, QLineEdit, QComboBox, QAbstractItemView,
     QMessageBox, QFormLayout, QScrollArea, QCheckBox,
     QDoubleSpinBox, QSpinBox, QSizePolicy, QSplitter,
-    QListWidget, QListWidgetItem
+    QListWidget, QListWidgetItem, QFileDialog, QProgressBar,
+    QTextEdit, QDialog
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QDoubleValidator
 
 from ui.supervisor_dashboard import SupervisorDashboard
@@ -355,6 +356,7 @@ class ManagerDashboard(SupervisorDashboard):
         self.tabs.addTab(self._build_users_tab(),      "👥  Users")
         self.tabs.addTab(self._build_business_tab(),   "🏢  Business")
         self.tabs.addTab(self._build_quickkeys_tab(),  "⌨  Quick Keys")
+        self.tabs.addTab(self._build_dbf_tab(),        "📥  Import DBF")
         self.tabs.addTab(self._build_sync_tab(),       "🔄  PostgreSQL")
 
         # Inherited supervisor tabs
@@ -1565,6 +1567,266 @@ class ManagerDashboard(SupervisorDashboard):
             self.qk_feedback.setText(str(e))
 
     # ================================================================
+    # DBF IMPORT TAB
+    # ================================================================
+
+    def _build_dbf_tab(self):
+        w = QWidget()
+        w.setStyleSheet("background-color: #0f1f30;")
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
+
+        # ── Header ────────────────────────────────────────────────────
+        hdr = QHBoxLayout()
+        title = QLabel("Import Stock from DBF File")
+        title.setStyleSheet("color: #f0f6ff; font-size: 16px; font-weight: 700;")
+        desc = QLabel(
+            "Imports products from a dBase (.DBF) file — e.g. STOCK.DBF — "
+            "into the products database. Groups, discount tiers, and stock "
+            "quantities are created automatically. Duplicate barcodes are skipped."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #94aac4; font-size: 12px;")
+        hdr.addWidget(title)
+        layout.addLayout(hdr)
+        layout.addWidget(desc)
+
+        # ── File picker row ───────────────────────────────────────────
+        file_frame = QFrame()
+        file_frame.setStyleSheet("background: #0a1929; border-radius: 8px;")
+        fl = QVBoxLayout(file_frame)
+        fl.setContentsMargins(16, 14, 16, 14)
+        fl.setSpacing(8)
+
+        file_lbl = QLabel("DBF FILE")
+        file_lbl.setStyleSheet(_SECTION_LBL)
+        fl.addWidget(file_lbl)
+
+        file_row = QHBoxLayout()
+        self.dbf_path_edit = QLineEdit()
+        self.dbf_path_edit.setPlaceholderText("Select a .DBF file…")
+        self.dbf_path_edit.setReadOnly(True)
+        self.dbf_path_edit.setFixedHeight(36)
+        self.dbf_path_edit.setStyleSheet(_INPUT + "QLineEdit { color: #94aac4; }")
+
+        browse_btn = QPushButton("📂  Browse…")
+        browse_btn.setFixedHeight(36)
+        browse_btn.setFixedWidth(130)
+        browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        browse_btn.setStyleSheet(_BTN_BLUE)
+        browse_btn.clicked.connect(self._dbf_browse)
+
+        file_row.addWidget(self.dbf_path_edit, stretch=1)
+        file_row.addWidget(browse_btn)
+        fl.addLayout(file_row)
+
+        # Preview row — shown after file selected
+        self.dbf_preview_lbl = QLabel("")
+        self.dbf_preview_lbl.setStyleSheet("color: #5a7a9a; font-size: 11px;")
+        fl.addWidget(self.dbf_preview_lbl)
+
+        layout.addWidget(file_frame)
+
+        # ── Options ───────────────────────────────────────────────────
+        opt_frame = QFrame()
+        opt_frame.setStyleSheet("background: #0a1929; border-radius: 8px;")
+        ol = QVBoxLayout(opt_frame)
+        ol.setContentsMargins(16, 14, 16, 14)
+        ol.setSpacing(8)
+
+        opt_lbl = QLabel("OPTIONS")
+        opt_lbl.setStyleSheet(_SECTION_LBL)
+        ol.addWidget(opt_lbl)
+
+        self.dbf_skip_dup = QCheckBox("Skip duplicate barcodes (recommended)")
+        self.dbf_skip_dup.setChecked(True)
+        self.dbf_skip_dup.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+
+        self.dbf_create_groups = QCheckBox("Create product groups from DBF GROUP field")
+        self.dbf_create_groups.setChecked(True)
+        self.dbf_create_groups.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+
+        self.dbf_create_levels = QCheckBox("Create discount levels from QUAN/PRICEM tiers")
+        self.dbf_create_levels.setChecked(True)
+        self.dbf_create_levels.setStyleSheet("color: #c9d1d9; font-size: 13px;")
+
+        ol.addWidget(self.dbf_skip_dup)
+        ol.addWidget(self.dbf_create_groups)
+        ol.addWidget(self.dbf_create_levels)
+        layout.addWidget(opt_frame)
+
+        # ── Progress ──────────────────────────────────────────────────
+        prog_frame = QFrame()
+        prog_frame.setStyleSheet("background: #0a1929; border-radius: 8px;")
+        pl = QVBoxLayout(prog_frame)
+        pl.setContentsMargins(16, 14, 16, 14)
+        pl.setSpacing(8)
+
+        self.dbf_progress = QProgressBar()
+        self.dbf_progress.setRange(0, 100)
+        self.dbf_progress.setValue(0)
+        self.dbf_progress.setFixedHeight(10)
+        self.dbf_progress.setTextVisible(False)
+        self.dbf_progress.setStyleSheet("""
+            QProgressBar {
+                background: #172840; border: none; border-radius: 5px;
+            }
+            QProgressBar::chunk {
+                background: #f59e0b; border-radius: 5px;
+            }
+        """)
+
+        self.dbf_status_lbl = QLabel("Select a DBF file to begin.")
+        self.dbf_status_lbl.setStyleSheet("color: #5a7a9a; font-size: 12px;")
+
+        pl.addWidget(self.dbf_progress)
+        pl.addWidget(self.dbf_status_lbl)
+        layout.addWidget(prog_frame)
+
+        # ── Log / results ─────────────────────────────────────────────
+        log_frame = QFrame()
+        log_frame.setStyleSheet("background: #0a1929; border-radius: 8px;")
+        ll = QVBoxLayout(log_frame)
+        ll.setContentsMargins(16, 14, 16, 14)
+        ll.setSpacing(6)
+
+        log_hdr = QHBoxLayout()
+        log_lbl = QLabel("IMPORT LOG")
+        log_lbl.setStyleSheet(_SECTION_LBL)
+        clear_log_btn = QPushButton("Clear")
+        clear_log_btn.setFixedHeight(24)
+        clear_log_btn.setFixedWidth(60)
+        clear_log_btn.setStyleSheet(_BTN_OUTLINE + "QPushButton { font-size: 11px; }")
+        clear_log_btn.clicked.connect(lambda: self.dbf_log.clear())
+        log_hdr.addWidget(log_lbl)
+        log_hdr.addStretch()
+        log_hdr.addWidget(clear_log_btn)
+        ll.addLayout(log_hdr)
+
+        self.dbf_log = QTextEdit()
+        self.dbf_log.setReadOnly(True)
+        self.dbf_log.setFixedHeight(180)
+        self.dbf_log.setStyleSheet("""
+            QTextEdit {
+                background: #07111f; color: #94aac4;
+                border: 1px solid #1e3a5f; border-radius: 6px;
+                font-family: monospace; font-size: 12px;
+                padding: 6px;
+            }
+        """)
+        ll.addWidget(self.dbf_log)
+        layout.addWidget(log_frame)
+
+        # ── Import button ─────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        self.dbf_import_btn = QPushButton("📥  Start Import")
+        self.dbf_import_btn.setFixedHeight(42)
+        self.dbf_import_btn.setFixedWidth(200)
+        self.dbf_import_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.dbf_import_btn.setStyleSheet(_BTN_BLUE)
+        self.dbf_import_btn.setEnabled(False)
+        self.dbf_import_btn.clicked.connect(self._dbf_start_import)
+        btn_row.addStretch()
+        btn_row.addWidget(self.dbf_import_btn)
+        layout.addLayout(btn_row)
+
+        self._dbf_worker = None
+        return w
+
+    # ── DBF tab helpers ───────────────────────────────────────────────
+
+    def _dbf_browse(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select DBF File", "",
+            "dBase Files (*.DBF *.dbf);;All Files (*)"
+        )
+        if not path:
+            return
+        self.dbf_path_edit.setText(path)
+        self.dbf_import_btn.setEnabled(True)
+        self.dbf_status_lbl.setText("Ready to import.")
+        self.dbf_progress.setValue(0)
+        # Quick preview: count records
+        try:
+            import sys, os
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from import_stock_dbf import read_dbf
+            _, records = read_dbf(path)
+            self.dbf_preview_lbl.setText(
+                f"  {len(records)} non-deleted records found in file."
+            )
+        except Exception as e:
+            self.dbf_preview_lbl.setText(f"  Could not preview file: {e}")
+
+    def _dbf_start_import(self):
+        path = self.dbf_path_edit.text().strip()
+        if not path:
+            QMessageBox.warning(self, "No File", "Please select a DBF file first.")
+            return
+
+        import os
+        if not os.path.exists(path):
+            QMessageBox.warning(self, "File Not Found", f"Cannot find:\n{path}")
+            return
+
+        # Confirm
+        reply = QMessageBox.question(
+            self, "Confirm Import",
+            f"Import products from:\n{path}\n\n"
+            "This will add new products. Existing products with matching "
+            "barcodes will be skipped. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        from config import PRODUCTS_DB
+        db_path = str(PRODUCTS_DB)
+
+        self.dbf_import_btn.setEnabled(False)
+        self.dbf_progress.setValue(5)
+        self.dbf_status_lbl.setText("Starting import…")
+        self.dbf_log.append(f"▶  Importing: {path}")
+
+        opts = {
+            "skip_dup":      self.dbf_skip_dup.isChecked(),
+            "create_groups": self.dbf_create_groups.isChecked(),
+            "create_levels": self.dbf_create_levels.isChecked(),
+        }
+
+        self._dbf_worker = _DbfImportWorker(path, db_path, opts)
+        self._dbf_worker.progress.connect(self._dbf_on_progress)
+        self._dbf_worker.log_line.connect(self._dbf_on_log)
+        self._dbf_worker.finished.connect(self._dbf_on_finished)
+        self._dbf_worker.start()
+
+    def _dbf_on_progress(self, pct, msg):
+        self.dbf_progress.setValue(pct)
+        self.dbf_status_lbl.setText(msg)
+
+    def _dbf_on_log(self, line):
+        self.dbf_log.append(line)
+        # Auto-scroll to bottom
+        sb = self.dbf_log.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def _dbf_on_finished(self, ok, summary):
+        self.dbf_progress.setValue(100 if ok else 0)
+        self.dbf_import_btn.setEnabled(True)
+        self._dbf_worker = None
+        if ok:
+            self.dbf_status_lbl.setStyleSheet("color: #10d98a; font-size: 12px;")
+            self.dbf_status_lbl.setText("✓  Import complete.")
+            self.dbf_log.append("\n" + summary)
+            QMessageBox.information(self, "Import Complete", summary)
+        else:
+            self.dbf_status_lbl.setStyleSheet("color: #f87171; font-size: 12px;")
+            self.dbf_status_lbl.setText("✕  Import failed.")
+            self.dbf_log.append(f"\n✕  FAILED: {summary}")
+            QMessageBox.critical(self, "Import Failed", summary)
+
+    # ================================================================
     # POSTGRESQL SYNC TAB
     # ================================================================
 
@@ -1828,3 +2090,209 @@ class ManagerDashboard(SupervisorDashboard):
             for col, item in enumerate([ti, ev, tb, ri, mi]):
                 tbl.setItem(i, col, item)
             tbl.setRowHeight(i, 28)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DBF IMPORT WORKER  (runs in a background QThread)
+# ──────────────────────────────────────────────────────────────────────────────
+
+class _DbfImportWorker(QThread):
+    """
+    Runs import_stock_dbf.import_dbf in a background thread.
+    Emits progress(pct, message), log_line(text), finished(ok, summary).
+    """
+
+    progress = pyqtSignal(int, str)
+    log_line = pyqtSignal(str)
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, dbf_path, db_path, opts, parent=None):
+        super().__init__(parent)
+        self._dbf_path = dbf_path
+        self._db_path  = db_path
+        self._opts     = opts
+
+    def run(self):
+        import sqlite3, os, sys
+
+        # Ensure the project root is on sys.path so import_stock_dbf is importable
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+
+        try:
+            from import_stock_dbf import read_dbf, _float, _bool_dbf
+        except ImportError as e:
+            self.finished.emit(False, f"Cannot find import_stock_dbf.py: {e}")
+            return
+
+        try:
+            # ── 1. Read DBF ──────────────────────────────────────────
+            self.progress.emit(10, "Reading DBF file…")
+            self.log_line.emit(f"  Reading: {self._dbf_path}")
+            fields, records = read_dbf(self._dbf_path)
+            total = len(records)
+            self.log_line.emit(f"  {total} non-deleted records found.")
+            if total == 0:
+                self.finished.emit(False, "No records found in DBF file.")
+                return
+
+            # ── 2. Open DB ───────────────────────────────────────────
+            self.progress.emit(15, "Opening database…")
+            conn = sqlite3.connect(self._db_path)
+            conn.execute("PRAGMA foreign_keys = ON")
+            cur  = conn.cursor()
+
+            # Ensure stock_qty column exists
+            existing_cols = {r[1] for r in cur.execute("PRAGMA table_info(products)").fetchall()}
+            if "stock_qty" not in existing_cols:
+                cur.execute("ALTER TABLE products ADD COLUMN stock_qty REAL NOT NULL DEFAULT 0.0")
+                conn.commit()
+                self.log_line.emit("  Added stock_qty column to products table.")
+
+            # ── 3. Product groups ────────────────────────────────────
+            group_id_map = {}
+            if self._opts.get("create_groups", True):
+                self.progress.emit(20, "Creating product groups…")
+                group_names = sorted({r["GROUP"] for r in records if r.get("GROUP", "").strip()})
+                for gname in group_names:
+                    cur.execute(
+                        "INSERT OR IGNORE INTO product_groups (group_name, profit_percent) VALUES (?, 0.0)",
+                        (gname,)
+                    )
+                    row = cur.execute(
+                        "SELECT id FROM product_groups WHERE group_name = ?", (gname,)
+                    ).fetchone()
+                    group_id_map[gname] = row[0]
+                conn.commit()
+                self.log_line.emit(f"  Groups: {len(group_id_map)} created/found.")
+
+            # ── 4. Discount levels ───────────────────────────────────
+            disc_id_map = {}
+            if self._opts.get("create_levels", True):
+                self.progress.emit(30, "Building discount levels…")
+                tier_set = set()
+                for r in records:
+                    sp = _float(r.get("PRICE", 0)) or _float(r.get("PRICEG", 0))
+                    if sp <= 0:
+                        continue
+                    for q_field, p_field in [("QUAN1","PRICEM1"),("QUAN2","PRICEM2"),("QUAN3","PRICEM3")]:
+                        qty   = _float(r.get(q_field, 0))
+                        price = _float(r.get(p_field, 0))
+                        if qty > 0 and 0 < price < sp:
+                            pct = round((sp - price) / sp * 100, 1)
+                            if pct > 0:
+                                tier_set.add((int(qty), pct))
+                for min_qty, pct in sorted(tier_set):
+                    level_name = f"Buy {min_qty}+ ({pct:.2f}% off)"
+                    cur.execute(
+                        "INSERT OR IGNORE INTO discount_levels (level_name, min_quantity, discount_percent) VALUES (?,?,?)",
+                        (level_name, min_qty, pct)
+                    )
+                    row = cur.execute(
+                        "SELECT id FROM discount_levels WHERE level_name = ?", (level_name,)
+                    ).fetchone()
+                    disc_id_map[(min_qty, pct)] = row[0]
+                conn.commit()
+                self.log_line.emit(f"  Discount levels: {len(disc_id_map)} created/found.")
+
+            # ── 5. Import products ───────────────────────────────────
+            self.progress.emit(40, "Importing products…")
+            inserted = 0
+            skipped  = 0
+            no_barcode = 0
+            errors   = []
+
+            for i, r in enumerate(records):
+                # Progress update every 50 records
+                if i % 50 == 0:
+                    pct = 40 + int((i / total) * 55)
+                    self.progress.emit(pct, f"Importing… {i}/{total}")
+
+                barcode = r.get("CODE", "").strip()
+                if not barcode:
+                    no_barcode += 1
+                    continue
+
+                name          = r.get("DESCRIP", "").strip() or "(no name)"
+                brand         = r.get("CATEGORY", "").strip() or None
+                selling_price = _float(r.get("PRICE", 0)) or _float(r.get("PRICEG", 0))
+                cost          = _float(r.get("COST", 0))
+                gct           = _bool_dbf(r.get("GCT", ""))
+                stock_qty     = _float(r.get("QUANTITY", 0))
+                group_id      = group_id_map.get(r.get("GROUP", "")) if r.get("GROUP", "").strip() else None
+
+                def resolve_tier(q_field, p_field):
+                    sp = selling_price
+                    if sp <= 0:
+                        return None
+                    qty   = _float(r.get(q_field, 0))
+                    price = _float(r.get(p_field, 0))
+                    if qty > 0 and 0 < price < sp:
+                        pct = round((sp - price) / sp * 100, 1)
+                        return disc_id_map.get((int(qty), pct))
+                    return None
+
+                disc1 = resolve_tier("QUAN1", "PRICEM1")
+                disc2 = resolve_tier("QUAN2", "PRICEM2")
+                if disc2 == disc1:
+                    disc2 = None
+
+                try:
+                    cur.execute("""
+                        INSERT INTO products
+                            (barcode, brand, name, cost, selling_price,
+                             gct_applicable, stock_qty, group_id,
+                             discount_level, discount_level_2,
+                             is_case, case_quantity)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)
+                    """, (barcode, brand, name, cost, selling_price,
+                          gct, stock_qty, group_id, disc1, disc2))
+                    inserted += 1
+                except sqlite3.IntegrityError:
+                    if self._opts.get("skip_dup", True):
+                        skipped += 1
+                        errors.append(f"  SKIP: {barcode}  {name}")
+                    else:
+                        # Overwrite
+                        cur.execute("""
+                            UPDATE products SET brand=?, name=?, cost=?, selling_price=?,
+                                gct_applicable=?, stock_qty=?, group_id=?,
+                                discount_level=?, discount_level_2=?
+                            WHERE barcode=?
+                        """, (brand, name, cost, selling_price, gct, stock_qty,
+                              group_id, disc1, disc2, barcode))
+                        inserted += 1
+
+            conn.commit()
+            conn.close()
+
+            # ── 6. Summary ───────────────────────────────────────────
+            self.progress.emit(100, "Done.")
+            summary_lines = [
+                f"✓  Inserted:        {inserted}",
+                f"⚠  Skipped (dup):   {skipped}",
+                f"⚠  No barcode:      {no_barcode}",
+            ]
+            if errors:
+                summary_lines.append(f"\nFirst {min(len(errors),10)} skipped barcodes:")
+                summary_lines += errors[:10]
+                if len(errors) > 10:
+                    summary_lines.append(f"  … and {len(errors)-10} more")
+
+            for line in summary_lines:
+                self.log_line.emit(line)
+
+            summary_short = (
+                f"Import complete.\n\n"
+                f"  Inserted:      {inserted}\n"
+                f"  Skipped (dup): {skipped}\n"
+                f"  No barcode:    {no_barcode}"
+            )
+            self.finished.emit(True, summary_short)
+
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            self.log_line.emit(f"\n✕  Error:\n{tb}")
+            self.finished.emit(False, str(e))
