@@ -1,5 +1,2 @@
-
-Golbal wants:
- - the styling, font, and over visual should be tweak to distinguish gui element for user in all dashbroads
- - the search lists in all dashbroads when a item is hieght lighted you cannot see text
- - icons are invisable like the arrows under cart 1,2,3 and other elements in other dashbroads
+make a build script for window on linux system (arch, fedora, debian)
+make import_stock_dbf executable separately
