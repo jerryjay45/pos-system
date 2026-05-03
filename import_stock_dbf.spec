@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['/home/shaq/Projects/pos-system-git/import_stock_dbf.py'],
+    ['/home/shaq/Projects/pos-system-testing/import_stock_dbf.py'],
     pathex=[],
     binaries=[],
     datas=[],

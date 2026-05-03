@@ -137,14 +137,19 @@ success "All packages installed"
 # ── Step 5: Create PyInstaller spec file ──────────────────────────────────────
 step "Creating PyInstaller spec"
 
-cat > "$BUILD_DIR/MerchantPOS.spec" << 'SPEC'
+# Verify icon exists before we embed it in the spec
+if [ ! -f "$SCRIPT_DIR/assets/merchant_pos.ico" ]; then
+    error "assets/merchant_pos.ico not found. Cannot embed icon in EXE."
+fi
+
+# Convert the Linux path to a Wine/Windows path for the icon
+ICO_WIN_PATH=$(winepath -w "$SCRIPT_DIR/assets/merchant_pos.ico" 2>/dev/null \
+    || echo "Z:${SCRIPT_DIR}/assets/merchant_pos.ico" | sed 's|/|\\|g')
+
+cat > "$BUILD_DIR/MerchantPOS.spec" << SPEC
 # -*- mode: python ; coding: utf-8 -*-
-import sys
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
-block_cipher = None
-
-# Collect PyQt6 data
 datas = []
 binaries = []
 hiddenimports = []
@@ -154,7 +159,6 @@ datas += qt_datas
 binaries += qt_binaries
 hiddenimports += qt_imports
 
-# App modules
 hiddenimports += collect_submodules('db')
 hiddenimports += collect_submodules('ui')
 hiddenimports += collect_submodules('printing')
@@ -166,7 +170,7 @@ a = Analysis(
     pathex=['.'],
     binaries=binaries,
     datas=datas + [
-        ('storedata', 'storedata'),
+        ('assets', 'assets'),
         ('README.md', '.'),
     ],
     hiddenimports=hiddenimports,
@@ -174,13 +178,10 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
@@ -194,27 +195,26 @@ exe = EXE(
     upx=True,
     console=False,
     disable_windowed_traceback=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon='assets/icon.ico' if os.path.exists('assets/icon.ico') else None,
+    icon='${ICO_WIN_PATH}',
 )
 
 coll = COLLECT(
     exe,
     a.binaries,
-    a.zipfiles,
     a.datas,
     strip=False,
     upx=True,
-    upx_exclude=[],
+    upx_exclude=[
+        'Qt6Core.dll', 'Qt6Gui.dll', 'Qt6Widgets.dll',
+        'Qt6PrintSupport.dll', 'qwindows.dll',
+    ],
     name='MerchantPOS',
 )
 SPEC
 
-# Copy spec to project directory so Wine can find it
+# Copy spec to project root so Wine PyInstaller can find all source files
 cp "$BUILD_DIR/MerchantPOS.spec" "$SCRIPT_DIR/MerchantPOS.spec"
-success "Spec file created"
+success "Spec file created (icon: $ICO_WIN_PATH)"
 
 # ── Step 6: Run PyInstaller via Wine ─────────────────────────────────────────
 step "Running PyInstaller (building Windows EXE)"
@@ -237,13 +237,24 @@ else
     error "PyInstaller failed — no dist/MerchantPOS folder found"
 fi
 
+# Copy assets folder into portable build so the icon is available at runtime
+# and accessible to Inno Setup during installer compilation
+mkdir -p "$DIST_DIR/MerchantPOS_Portable/assets"
+cp "$SCRIPT_DIR/assets/merchant_pos.ico"     "$DIST_DIR/MerchantPOS_Portable/assets/"
+cp "$SCRIPT_DIR/assets/merchant_pos_128.png" "$DIST_DIR/MerchantPOS_Portable/assets/" 2>/dev/null || true
+cp "$SCRIPT_DIR/assets/merchant_pos_256.png" "$DIST_DIR/MerchantPOS_Portable/assets/" 2>/dev/null || true
+cp "$SCRIPT_DIR/assets/merchant_pos_512.png" "$DIST_DIR/MerchantPOS_Portable/assets/" 2>/dev/null || true
+success "Assets copied to portable folder"
+
+# Ensure storedata folder exists in portable build
+mkdir -p "$DIST_DIR/MerchantPOS_Portable/storedata"
+
 # Clean up spec from project root
 rm -f "$SCRIPT_DIR/MerchantPOS.spec"
 
 # ── Step 7: Create Inno Setup installer ───────────────────────────────────────
 step "Creating Windows installer with Inno Setup"
 
-# Install Inno Setup into Wine if not present
 INNO_EXE="$WINE_PREFIX/drive_c/Program Files (x86)/Inno Setup 6/ISCC.exe"
 if [ ! -f "$INNO_EXE" ]; then
     if [ ! -f "$INNO_INSTALLER" ]; then
@@ -252,54 +263,66 @@ if [ ! -f "$INNO_EXE" ]; then
     fi
     info "Installing Inno Setup into Wine..."
     wine "$INNO_INSTALLER" /VERYSILENT /SUPPRESSMSGBOXES 2>/dev/null || true
-    sleep 3
+    sleep 5
     success "Inno Setup installed"
 else
     success "Inno Setup already installed"
 fi
 
-# Write Inno Setup script
+# Convert Linux paths to Wine/Windows paths for use inside the .iss file
+PORTABLE_WIN_PATH=$(winepath -w "$DIST_DIR/MerchantPOS_Portable" 2>/dev/null \
+    || echo "Z:${DIST_DIR}/MerchantPOS_Portable" | sed 's|/|\\|g')
+OUTPUT_WIN_PATH=$(winepath -w "$DIST_DIR" 2>/dev/null \
+    || echo "Z:${DIST_DIR}" | sed 's|/|\\|g')
+ICO_WIN_PATH_PORTABLE=$(winepath -w "$DIST_DIR/MerchantPOS_Portable/assets/merchant_pos.ico" 2>/dev/null \
+    || echo "Z:${DIST_DIR}/MerchantPOS_Portable/assets/merchant_pos.ico" | sed 's|/|\\|g')
+
 ISS_FILE="$BUILD_DIR/installer.iss"
-PORTABLE_WIN_PATH=$(winepath -w "$DIST_DIR/MerchantPOS_Portable" 2>/dev/null || echo "Z:\\${DIST_DIR//\//\\}/MerchantPOS_Portable")
-OUTPUT_WIN_PATH=$(winepath -w "$DIST_DIR" 2>/dev/null || echo "Z:\\${DIST_DIR//\//\\}")
 
 cat > "$ISS_FILE" << ISS
 [Setup]
 AppName=${APP_DISPLAY}
 AppVersion=${APP_VERSION}
+AppVerName=${APP_DISPLAY} v${APP_VERSION}
 AppPublisher=${PUBLISHER}
 DefaultDirName={autopf}\\${APP_NAME}
 DefaultGroupName=${APP_DISPLAY}
+AllowNoIcons=yes
 OutputDir=${OUTPUT_WIN_PATH}
 OutputBaseFilename=${APP_NAME}_Setup_v${APP_VERSION}
+SetupIconFile=${ICO_WIN_PATH_PORTABLE}
+UninstallDisplayIcon={app}\\assets\\merchant_pos.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 MinVersion=10.0
 PrivilegesRequired=admin
-UninstallDisplayIcon={app}\\MerchantPOS.exe
-SetupIconFile=
+DisableProgramGroupPage=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
 Source: "${PORTABLE_WIN_PATH}\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\\${APP_DISPLAY}"; Filename: "{app}\\MerchantPOS.exe"
+Name: "{group}\\${APP_DISPLAY}";           Filename: "{app}\\MerchantPOS.exe"; IconFilename: "{app}\\assets\\merchant_pos.ico"
 Name: "{group}\\Uninstall ${APP_DISPLAY}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\\${APP_DISPLAY}"; Filename: "{app}\\MerchantPOS.exe"; Tasks: desktopicon
+Name: "{autodesktop}\\${APP_DISPLAY}";     Filename: "{app}\\MerchantPOS.exe"; IconFilename: "{app}\\assets\\merchant_pos.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\\MerchantPOS.exe"; Description: "{cm:LaunchProgram,${APP_DISPLAY}}"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\\storedata"
 ISS
 
 info "Compiling installer..."
-ISS_WIN_PATH=$(winepath -w "$ISS_FILE" 2>/dev/null || echo "Z:\\${ISS_FILE//\//\\}")
+ISS_WIN_PATH=$(winepath -w "$ISS_FILE" 2>/dev/null \
+    || echo "Z:${ISS_FILE}" | sed 's|/|\\|g')
 wine "$INNO_EXE" "$ISS_WIN_PATH" 2>/dev/null || warn "Inno Setup compilation had warnings"
 
 INSTALLER_FILE="$DIST_DIR/${APP_NAME}_Setup_v${APP_VERSION}.exe"
